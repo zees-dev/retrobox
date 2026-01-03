@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RetroBox</title>
+    <script>
+        // Disable WakeLock by intercepting errors
+        const originalRequest = navigator.wakeLock?.request;
+        if (originalRequest) {
+            navigator.wakeLock.request = async function(...args) {
+                try {
+                    return await originalRequest.apply(this, args);
+                } catch (error) {
+                    console.log('WakeLock error caught and ignored:', error.message);
+                    // Return a mock wake lock sentinel
+                    return {
+                        released: false,
+                        type: args[0],
+                        release: async () => Promise.resolve(),
+                        addEventListener: () => {},
+                        removeEventListener: () => {}
+                    };
+                }
+            };
+        }
+    </script>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .game-container {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        #game {
+            width: 100%;
+            height: 100%;
+        }
+        .loading {
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            z-index: 100;
+        }
+        
+        .loading-spinner {
+            margin: 20px auto;
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .controllers {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+        }
+        .controller-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            transition: all 0.3s ease;
+        }
+        .controller-dot.active {
+            width: 10px;
+            height: 10px;
+            border: none;
+            animation: fadeIn 0.5s ease, pulse 2s ease-in-out infinite;
+        }
+        .controller-dot.player-0 { background: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
+        .controller-dot.player-1 { background: #2196F3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.5); }
+        .controller-dot.player-2 { background: #9C27B0; box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
+        .controller-dot.player-3 { background: #FFC107; box-shadow: 0 0 10px rgba(255, 193, 7, 0.5); }
+        
+        @keyframes fadeIn {
+            from { 
+                opacity: 0; 
+                transform: scale(0.5);
+            }
+            to { 
+                opacity: 1; 
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+        }
+        
+        .qr-container {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 999;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        
+        .qr-container.hidden {
+            opacity: 0;
+            transform: translateY(-20px);
+            pointer-events: none;
+        }
+        
+        .qr-code-display {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        
+        .qr-text {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .qr-url {
+            color: #4a9eff;
+            font-size: 11px;
+            font-family: monospace;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="qr-container" id="qrContainer">
+        <div class="qr-text">Scan to connect controller:</div>
+        <div class="qr-code-display" id="qrCodeDisplay"></div>
+        <div class="qr-url" id="qrUrl"></div>
+    </div>
+    <div class="game-container">
+        <div id="game">
+            <div class="loading">Loading emulator...</div>
+        </div>
+    </div>
+    <div id="loadingOverlay">
+        <div class="loading">
+            <div class="loading-spinner"></div>
+            <div id="loadingText">Loading...</div>
+        </div>
+    </div>
+    <div class="controllers" id="controllers"></div>
+    
+    <!-- Game menu web component -->
+    <game-menu id="gameMenu" mode="screen"></game-menu>
+
+    <script type="text/javascript">
+        // Game state
+        let pendingROM = null;
+        let gameStarted = false;
+
+        // PeerJS setup - Screen is receiver
+        let peer;
+        let controllerConnections = new Map();
+        let heartbeatIntervals = new Map();
+        let playerNumbers = new Map();
+        let nextPlayerNumber = 0;
+        
+        // QR Code management
+        let qrCodeGenerated = false;
+        let isPaused = false;
+
+        function initializePeer() {
+            const screenId = 'emulator-screen';
+            peer = new Peer(screenId, {
+                config: {
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                }
+            });
+            peer.on('open', (id) => {
+                console.log('Screen ready:', id);
+            });
+            peer.on('connection', (conn) => {
+                const controllerId = conn.peer;
+                conn.on('open', () => {
+                    controllerConnections.set(controllerId, conn);
+                    
+                    // Assign player number
+                    const playerNumber = getNextAvailablePlayerNumber();
+                    playerNumbers.set(controllerId, playerNumber);
+                    
+                    console.log('Controller connected:', controllerId, 'as Player', playerNumber + 1);
+                    
+                    // Send player number to controller
+                    conn.send({ type: 'playerAssignment', playerNumber: playerNumber });
+                    
+                    // Send current game state to controller
+                    if (gameStarted) {
+                        conn.send({ type: 'gameStarted' });
+                    } else {
+                        conn.send({ type: 'gameReset' });
+                    }
+                    
+                    updateControllerDisplay();
+                    
+                    // Set up heartbeat monitoring
+                    let lastHeartbeat = Date.now();
+                    const heartbeatInterval = setInterval(() => {
+                        if (Date.now() - lastHeartbeat > 5000) {
+                            // No heartbeat for 5 seconds, consider disconnected
+                            console.log('Controller timeout:', controllerId);
+                            handleControllerDisconnect(controllerId);
+                        }
+                    }, 2000);
+                    heartbeatIntervals.set(controllerId, heartbeatInterval);
+                    
+                    conn.on('data', (data) => {
+                        // Handle heartbeat
+                        if (data.type === 'heartbeat') {
+                            lastHeartbeat = Date.now();
+                            // Send heartbeat response back to controller
+                            conn.send({ type: 'heartbeat' });
+                            return;
+                        }
+                        
+                        // Handle game start command from controller
+                        if (data.type === 'startGame' && data.gameData) {
+                            console.log('Controller requested game start:', data.gameData);
+                            if (gameMenu) {
+                                gameMenu.hide();
+                            }
+                            loadROM(data.gameData);
+                            return;
+                        }
+                        
+                        // Handle reset to menu command from controller
+                        if (data.type === 'resetToMenu') {
+                            console.log('Controller requested reset to menu');
+                            resetToGameMenu();
+                            return;
+                        }
+                        
+                        const { method, params } = data;
+                        if (EJS_emulator?.handler) {
+                            try {
+                                // Use the player number for this controller
+                                if (method === 'input.simulate' && params) {
+                                    params.player = playerNumbers.get(controllerId) || 0;
+                                }
+                                const result = EJS_emulator.handler.exec(method, params);
+                                console.log('Executed:', method, result);
+                            } catch (error) {
+                                console.error('Failed:', method, error);
+                            }
+                        }
+                    });
+                    
+                    conn.on('close', () => {
+                        console.log('Controller disconnected:', controllerId);
+                        handleControllerDisconnect(controllerId);
+                    });
+                    
+                    conn.on('error', (error) => {
+                        console.error('Controller error:', controllerId, error);
+                        handleControllerDisconnect(controllerId);
+                    });
+                });
+            });
+            
+            peer.on('error', (error) => {
+                console.error('Peer error:', error);
+            });
+        }
+        
+        function getNextAvailablePlayerNumber() {
+            // Find the lowest available player number (0-3)
+            const usedNumbers = Array.from(playerNumbers.values());
+            for (let i = 0; i < 4; i++) {
+                if (!usedNumbers.includes(i)) {
+                    return i;
+                }
+            }
+            // If all slots are taken, return the next number
+            return usedNumbers.length;
+        }
+        
+        function handleControllerDisconnect(controllerId) {
+            // Clean up connection
+            const conn = controllerConnections.get(controllerId);
+            if (conn) {
+                try {
+                    conn.close();
+                } catch (e) {}
+            }
+            
+            // Clean up heartbeat interval
+            const interval = heartbeatIntervals.get(controllerId);
+            if (interval) {
+                clearInterval(interval);
+                heartbeatIntervals.delete(controllerId);
+            }
+            
+            // Remove player number
+            playerNumbers.delete(controllerId);
+            
+            // Remove from connections map
+            controllerConnections.delete(controllerId);
+            console.log('Remaining controllers:', controllerConnections.size);
+            
+            // Update display
+            updateControllerDisplay();
+        }
+        
+        function updateControllerDisplay() {
+            const container = document.getElementById('controllers');
+            console.log('Updating display, controllers:', controllerConnections.size);
+            container.innerHTML = '';
+            
+            // Always show 4 dots for players 1-4
+            for (let i = 0; i < 4; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'controller-dot';
+                
+                // Check if this player slot is occupied
+                const isConnected = Array.from(playerNumbers.values()).includes(i);
+                if (isConnected) {
+                    dot.classList.add('active', `player-${i}`);
+                }
+                
+                container.appendChild(dot);
+            }
+        }
+
+        // Initialize PeerJS when page loads
+        initializePeer();
+        
+        // Generate QR code for controller connection
+        function generateQRCode() {
+            if (qrCodeGenerated) return;
+            
+            const qrDisplay = document.getElementById('qrCodeDisplay');
+            const qrUrl = document.getElementById('qrUrl');
+            
+            // Get current URL and replace filename with controller.html
+            const currentUrl = new URL(window.location.href);
+            currentUrl.pathname = currentUrl.pathname.replace(/[^/]*$/, 'controller.html');
+            const controllerUrl = currentUrl.toString();
+            
+            // Clear any existing content
+            qrDisplay.innerHTML = '';
+            
+            // Generate QR code
+            new QRCode(qrDisplay, {
+                text: controllerUrl,
+                width: 120,
+                height: 120,
+                colorDark: '#000000',
+                colorLight: '#FFFFFF',
+                correctLevel: QRCode.CorrectLevel.H
+            });
+            
+            // Show the URL
+            qrUrl.textContent = controllerUrl;
+            qrCodeGenerated = true;
+        }
+        
+        // Show/hide QR code
+        function showQRCode() {
+            const container = document.getElementById('qrContainer');
+            container.classList.remove('hidden');
+        }
+        
+        function hideQRCode() {
+            const container = document.getElementById('qrContainer');
+            container.classList.add('hidden');
+        }
+        
+        // Generate QR code after a short delay
+        setTimeout(() => {
+            generateQRCode();
+            showQRCode();
+        }, 500);
+        
+        // Game menu instance
+        let gameMenu = null;
+        
+        function loadROM(gameData) {
+            // Store the ROM info for loading
+            pendingROM = {
+                source: gameData.romSource,
+                name: gameData.romName.split('.').slice(0, -1).join('.'),
+                core: gameData.core,
+                biosSource: gameData.biosSource
+            };
+            
+            // Don't hide the menu yet - let loading show
+            // The menu will be hidden when the game actually starts
+            
+            // Start the game
+            startGame();
+        }
+        
+        // Function to reset to menu (can be called programmatically)
+        function resetToMenu() {
+            gameStarted = false;
+            
+            // Show the menu
+            if (gameMenu) {
+                gameMenu.show();
+            }
+            
+            // Notify all connected controllers
+            controllerConnections.forEach((conn, controllerId) => {
+                if (conn && conn.open) {
+                    conn.send({ type: 'gameReset' });
+                }
+            });
+        }
+        
+        // Function to reset the emulator and return to game menu
+        function resetToGameMenu() {
+            gameStarted = false;
+            
+            // Notify all connected controllers first
+            controllerConnections.forEach((conn, controllerId) => {
+                if (conn && conn.open) {
+                    conn.send({ type: 'gameReset' });
+                }
+            });
+            
+            // Since EmulatorJS uses const/class declarations that can't be redeclared,
+            // the most reliable way is to reload the page
+            setTimeout(() => {
+                window.location.reload();
+            }, 100);
+        }
+        
+        
+        function initializeEmulator() {
+            // Set up EmulatorJS configuration
+            window.EJS_player = '#game';
+            window.EJS_pathtodata = 'EmulatorJS/data/';
+            window.EJS_startOnLoaded = true; // Let it auto-start
+            window.EJS_volume = 1;
+            window.EJS_DEBUG_XX = true;
+            window.EJS_EXPERIMENTAL_NETPLAY = true;
+            
+            // Set command handler config
+            window.EJS_commandConfig = {
+                onCommand: window.EJS_onCommand
+            };
+            
+            // Use pending ROM if available
+            if (pendingROM) {
+                window.EJS_gameName = pendingROM.name;
+                window.EJS_gameUrl = pendingROM.source;
+                window.EJS_core = pendingROM.core;
+                
+                // Set BIOS URL if provided
+                if (pendingROM.biosSource) {
+                    window.EJS_biosUrl = pendingROM.biosSource;
+                }
+            } else {
+                console.error('No ROM selected');
+                return;
+            }
+            
+            // Set up UI buttons
+            window.EJS_Buttons = {
+                playPause: true,
+                restart: true,
+                mute: true,
+                settings: true,
+                fullscreen: true,
+                saveState: false,
+                loadState: false,
+                screenRecord: false,
+                gamepad: true,
+                cheat: true,
+                volume: false,
+                saveSavFiles: true,
+                loadSavFiles: true,
+                quickSave: true,
+                quickLoad: true,
+                screenshot: false,
+                cacheManager: false,
+                exitEmulation: false,
+                netplay: true,
+                // custom buttons
+                resetToMenu: {
+                    visible: true,
+                    displayName: "Reset to Menu",
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+                    callback: resetToGameMenu,
+                }
+            };
+            
+            // Event callbacks
+            window.EJS_ready = function() {
+                console.log('EmulatorJS is ready!');
+                
+                // Poll for ejs_canvas_parent to appear in the DOM
+                const checkForCanvas = setInterval(() => {
+                    const canvasParent = document.querySelector('.ejs_canvas_parent');
+                    if (canvasParent) {
+                        console.log('Game canvas detected, hiding loading overlay');
+                        clearInterval(checkForCanvas);
+                        const overlay = document.getElementById('loadingOverlay');
+                        if (overlay) {
+                            overlay.style.display = 'none';
+                        }
+                    }
+                }, 100);
+                
+                // Fallback timeout after 30 seconds
+                setTimeout(() => {
+                    clearInterval(checkForCanvas);
+                    const overlay = document.getElementById('loadingOverlay');
+                    if (overlay && overlay.style.display !== 'none') {
+                        overlay.style.display = 'none';
+                    }
+                }, 30000);
+            };
+            
+            window.EJS_onGameStart = function() {
+                console.log('Game started!');
+                gameStarted = true;
+                
+                // Hide the game menu (and its loading overlay)
+                if (gameMenu) {
+                    gameMenu.hide();
+                }
+                
+                // Hide QR code when game starts
+                hideQRCode();
+                
+                // Notify all connected controllers that game has started
+                controllerConnections.forEach((conn, controllerId) => {
+                    if (conn && conn.open) {
+                        conn.send({ type: 'gameStarted' });
+                    }
+                });
+            };
+            
+            // Hook into command events to detect pause
+            window.EJS_onCommand = function(eventData) {
+                // Check if it's an input.simulate command
+                if (eventData.method === 'input.simulate') {
+                    const { button, state, value } = eventData.params;
+                    
+                    // Button 19 is typically the pause button in EmulatorJS
+                    // Check if pause button is pressed (not released)
+                    if (button === 19 && (state === 'pressed' || value === 1)) {
+                        console.log('Pause button detected!');
+                        // Toggle pause state
+                        isPaused = !isPaused;
+                        if (isPaused) {
+                            console.log('Game paused via button!');
+                            showQRCode();
+                        } else {
+                            console.log('Game resumed via button!');
+                            hideQRCode();
+                        }
+                    }
+                }
+                
+                // Also listen for direct pause/play commands
+                if (eventData.method === 'control.pause') {
+                    console.log('Game paused via command!');
+                    isPaused = true;
+                    showQRCode();
+                } else if (eventData.method === 'control.play') {
+                    console.log('Game resumed via command!');
+                    isPaused = false;
+                    hideQRCode();
+                }
+            };
+            
+            // Load EmulatorJS script
+            const script = document.createElement('script');
+            script.src = 'EmulatorJS/data/loader.js';
+            document.body.appendChild(script);
+        }
+        
+        function startGame() {
+            // Show loading overlay
+            const overlay = document.getElementById('loadingOverlay');
+            const loadingText = document.getElementById('loadingText');
+            loadingText.textContent = `Loading ${pendingROM ? pendingROM.name : 'emulator'}...`;
+            overlay.style.display = 'flex';
+            
+            // Initialize and start emulator
+            initializeEmulator();
+        }
+        
+        // Load the game menu web component
+        async function loadGameMenuComponent() {
+            try {
+                const response = await fetch('game-menu.html');
+                const html = await response.text();
+                
+                // Extract and execute the script
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const script = doc.querySelector('script[type="module"]');
+                
+                if (script) {
+                    const scriptElement = document.createElement('script');
+                    scriptElement.type = 'module';
+                    scriptElement.textContent = script.textContent;
+                    document.head.appendChild(scriptElement);
+                    
+                    // Wait for custom element to be defined
+                    await customElements.whenDefined('game-menu');
+                    
+                    const gameMenuElement = document.getElementById('gameMenu');
+                    if (gameMenuElement) {
+                        gameMenu = gameMenuElement;
+                        
+                        // Listen for game start event
+                        gameMenuElement.addEventListener('gamestart', (event) => {
+                            loadROM(event.detail);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load game menu component:', error);
+            }
+        }
+        
+        loadGameMenuComponent();
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "retrobox",
+  "version": "1.0.0",
+  "description": "EmulatorJS-based retro gaming frontend with remote controller support",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run server.ts",
+    "start": "bun run server.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "^1.3.5"
+  }
+}

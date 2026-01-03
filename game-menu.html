@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Game Menu Web Component</title>
+</head>
+<body>
+    <script type="module">
+        // Game Menu Web Component
+        class GameMenuElement extends HTMLElement {
+            constructor() {
+                super();
+                
+                // Create shadow DOM for encapsulation
+                this.attachShadow({ mode: 'open' });
+                
+                // Component properties
+                this._mode = 'screen';
+                this._showManualConfig = true;
+                this._peerConnection = null;
+                this._currentRomSource = null;
+                this._currentBiosSource = null;
+                
+                // Create template
+                this.shadowRoot.innerHTML = this.getTemplate();
+                
+                // Get references to elements
+                this.container = this.shadowRoot.querySelector('.game-controls');
+                this.presetSelect = this.shadowRoot.getElementById('presetSelect');
+                this.romUrlInput = this.shadowRoot.getElementById('romUrlInput');
+                this.biosUrlInput = this.shadowRoot.getElementById('biosUrlInput');
+                this.consoleSelect = this.shadowRoot.getElementById('consoleSelect');
+                this.startButton = this.shadowRoot.getElementById('startButton');
+                this.uploadButton = this.shadowRoot.getElementById('uploadButton');
+                this.biosUploadButton = this.shadowRoot.getElementById('biosUploadButton');
+                this.fileInput = this.shadowRoot.getElementById('fileInput');
+                this.biosFileInput = this.shadowRoot.getElementById('biosFileInput');
+                this.loadingOverlay = this.shadowRoot.getElementById('loadingOverlay');
+                
+                // Bind methods
+                this.hide = this.hide.bind(this);
+                this.show = this.show.bind(this);
+                this.setPeerConnection = this.setPeerConnection.bind(this);
+            }
+            
+            // Web Component lifecycle
+            connectedCallback() {
+                this.init();
+            }
+            
+            static get observedAttributes() {
+                return ['mode', 'show-manual-config'];
+            }
+            
+            attributeChangedCallback(name, oldValue, newValue) {
+                switch (name) {
+                    case 'mode':
+                        this._mode = newValue || 'screen';
+                        break;
+                    case 'show-manual-config':
+                        this._showManualConfig = newValue !== 'false';
+                        this.updateManualConfigVisibility();
+                        break;
+                }
+            }
+            
+            // Getters and setters
+            get mode() {
+                return this._mode;
+            }
+            
+            set mode(value) {
+                this._mode = value;
+                this.setAttribute('mode', value);
+            }
+            
+            get showManualConfig() {
+                return this._showManualConfig;
+            }
+            
+            set showManualConfig(value) {
+                this._showManualConfig = value;
+                this.setAttribute('show-manual-config', value.toString());
+            }
+            
+            getTemplate() {
+                return `
+                    <style>
+                        :host {
+                            display: block;
+                            position: fixed;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            z-index: 1000;
+                            pointer-events: none;
+                        }
+                        
+                        .game-controls {
+                            position: fixed;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%);
+                            display: grid;
+                            grid-template-columns: 1fr 40px;
+                            gap: 10px;
+                            background-color: rgba(0, 0, 0, 0.8);
+                            padding: 15px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            transition: opacity 0.3s ease, visibility 0.3s ease;
+                            width: 90%;
+                            max-width: 400px;
+                            box-sizing: border-box;
+                            pointer-events: auto;
+                        }
+                        
+                        .game-controls.hidden {
+                            opacity: 0;
+                            visibility: hidden;
+                            pointer-events: none;
+                        }
+                        
+                        .game-controls.preset-only {
+                            max-width: 300px;
+                            padding: 20px;
+                        }
+                        
+                        /* Portrait mode adjustments */
+                        @media (orientation: portrait) {
+                            .game-controls {
+                                width: 85%;
+                                max-width: 350px;
+                            }
+                        }
+                        
+                        /* Landscape mode adjustments */
+                        @media (orientation: landscape) and (max-height: 600px) {
+                            .game-controls {
+                                max-height: 85vh;
+                                overflow-y: auto;
+                                padding: 10px;
+                                width: 80%;
+                                max-width: 500px;
+                            }
+                            
+                            .game-controls.preset-only {
+                                padding: 15px;
+                            }
+                            
+                            input, select {
+                                height: 35px !important;
+                                font-size: 12px !important;
+                            }
+                            
+                            .upload-btn, .start-button {
+                                width: 35px !important;
+                                height: 35px !important;
+                                font-size: 18px !important;
+                            }
+                            
+                            .start-button.full-width {
+                                height: 40px !important;
+                                font-size: 14px !important;
+                            }
+                        }
+                        
+                        input[type="text"], select {
+                            width: 100%;
+                            height: 40px;
+                            padding: 0 12px;
+                            background-color: rgba(255, 255, 255, 0.1);
+                            border: 2px solid rgba(255, 255, 255, 0.2);
+                            border-radius: 6px;
+                            color: #fff;
+                            font-family: monospace;
+                            font-size: 14px;
+                            transition: all 0.3s ease;
+                            box-sizing: border-box;
+                        }
+                        
+                        input[type="text"]:focus {
+                            outline: none;
+                            border-color: #1AAFFF;
+                            background-color: rgba(255, 255, 255, 0.15);
+                        }
+                        
+                        input[type="text"]::placeholder {
+                            color: rgba(255, 255, 255, 0.5);
+                        }
+                        
+                        select {
+                            cursor: pointer;
+                            -webkit-appearance: none;
+                            -moz-appearance: none;
+                            appearance: none;
+                            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+                            background-repeat: no-repeat;
+                            background-position: right 10px center;
+                            background-size: 20px;
+                            padding-right: 40px;
+                        }
+                        
+                        select:disabled {
+                            background-color: rgba(128, 128, 128, 0.1);
+                            border-color: rgba(128, 128, 128, 0.2);
+                            color: #666;
+                            cursor: not-allowed;
+                        }
+                        
+                        select:not(:disabled):hover {
+                            border-color: #1AAFFF;
+                            background-color: rgba(255, 255, 255, 0.15);
+                        }
+                        
+                        select option {
+                            background-color: #333;
+                            color: #fff;
+                            font-size: 16px;
+                        }
+                        
+                        /* iOS specific fixes */
+                        @supports (-webkit-touch-callout: none) {
+                            select {
+                                font-size: 16px;
+                            }
+                        }
+                        
+                        .upload-btn, .start-button {
+                            width: 40px;
+                            height: 40px;
+                            border-radius: 6px;
+                            border: 2px solid rgba(255, 255, 255, 0.2);
+                            background-color: rgba(255, 255, 255, 0.1);
+                            color: #fff;
+                            font-size: 20px;
+                            cursor: pointer;
+                            transition: all 0.3s ease;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            padding: 0;
+                            flex-shrink: 0;
+                        }
+                        
+                        .upload-btn:hover:not(:disabled) {
+                            background-color: rgba(255, 255, 255, 0.2);
+                            border-color: #1AAFFF;
+                            transform: scale(1.05);
+                        }
+                        
+                        .start-button {
+                            background-color: rgba(76, 175, 80, 0.2);
+                            border-color: rgba(76, 175, 80, 0.4);
+                            color: #4CAF50;
+                            font-weight: bold;
+                        }
+                        
+                        .start-button.full-width {
+                            width: 100%;
+                            height: 45px;
+                            font-size: 16px;
+                            margin-top: 5px;
+                        }
+                        
+                        .start-button:not(:disabled):hover {
+                            background-color: rgba(76, 175, 80, 0.3);
+                            border-color: #4CAF50;
+                            color: #66BB6A;
+                            transform: scale(1.05);
+                        }
+                        
+                        .start-button:disabled {
+                            background-color: rgba(128, 128, 128, 0.1);
+                            border-color: rgba(128, 128, 128, 0.2);
+                            color: #666;
+                            opacity: 0.6;
+                            cursor: not-allowed;
+                        }
+                        
+                        .full-width {
+                            grid-column: 1 / -1;
+                        }
+                        
+                        .or-separator {
+                            grid-column: 1 / -1;
+                            text-align: center;
+                            color: rgba(255, 255, 255, 0.5);
+                            font-size: 14px;
+                            padding: 5px 0;
+                        }
+                        
+                        input[type="file"] {
+                            display: none;
+                        }
+                        
+                        .connection-status {
+                            position: absolute;
+                            top: -30px;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            color: #ff9800;
+                            font-size: 14px;
+                            white-space: nowrap;
+                        }
+                        
+                        .disabled-overlay {
+                            opacity: 0.5;
+                        }
+                        
+                        .loading-overlay {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background-color: rgba(0, 0, 0, 0.9);
+                            display: none;
+                            align-items: center;
+                            justify-content: center;
+                            flex-direction: column;
+                            border-radius: 8px;
+                            z-index: 10;
+                        }
+                        
+                        .loading-overlay.active {
+                            display: flex;
+                        }
+                        
+                        .loading-spinner {
+                            width: 50px;
+                            height: 50px;
+                            border: 3px solid rgba(255, 255, 255, 0.3);
+                            border-top-color: #4CAF50;
+                            border-radius: 50%;
+                            animation: spin 1s linear infinite;
+                        }
+                        
+                        @keyframes spin {
+                            to { transform: rotate(360deg); }
+                        }
+                        
+                        .loading-text {
+                            color: #fff;
+                            margin-top: 20px;
+                            font-size: 16px;
+                        }
+                    </style>
+                    
+                    <div class="game-controls" id="gameControls">
+                        <select id="presetSelect" class="full-width">
+                            <option value="">Select Preset Game</option>
+                        </select>
+                        <div class="or-separator">— or —</div>
+                        <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
+                        <button class="upload-btn" id="uploadButton">📁</button>
+                        <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
+                        <button class="upload-btn" id="biosUploadButton">📁</button>
+                        <select id="consoleSelect" class="full-width">
+                            <option value="">Select Console</option>
+                        </select>
+                        <button class="start-button full-width" id="startButton" disabled>▶ Start Game</button>
+                        <div class="loading-overlay" id="loadingOverlay">
+                            <div class="loading-spinner"></div>
+                            <div class="loading-text">Loading game...</div>
+                        </div>
+                    </div>
+                    <input type="file" id="fileInput" accept=".zip,.7z,.nes,.smc,.sfc,.gb,.gba,.gbc,.n64,.z64,.nds,.pce,.ngp,.ngc,.ws,.wsc,.col,.cv,.d64">
+                    <input type="file" id="biosFileInput" accept=".zip,.7z,.bin,.rom,.bios">
+                `;
+            }
+            
+            init() {
+                // Game presets configuration
+                this.gamePresets = {
+                    'mslug3': {
+                        name: 'Metal Slug 3',
+                        rom: 'presets/mslug3/mslug3.zip',
+                        bios: 'bios/uni-bios.rom',
+                        core: 'arcade'
+                    },
+                    'kof99': {
+                        name: 'The King of Fighters 99',
+                        rom: 'presets/kof99/kof99.zip',
+                        bios: 'presets/kof99/arcade.zip',
+                        core: 'arcade'
+                    }
+                };
+                
+                // Core mapping
+                this.coreValues = {
+                    "Nintendo 64": "n64",
+                    "Nintendo Game Boy": "gb",
+                    "Nintendo Game Boy Advance": "gba",
+                    "Nintendo DS": "nds",
+                    "Nintendo Entertainment System": "nes",
+                    "Super Nintendo Entertainment System": "snes",
+                    "PlayStation": "psx",
+                    "Virtual Boy": "vb",
+                    "Sega Mega Drive": "segaMD",
+                    "Sega Master System": "segaMS",
+                    "Sega CD": "segaCD",
+                    "Atari Lynx": "lynx",
+                    "Sega 32X": "sega32x",
+                    "Atari Jaguar": "jaguar",
+                    "Sega Game Gear": "segaGG",
+                    "Sega Saturn": "segaSaturn",
+                    "Atari 7800": "atari7800",
+                    "Atari 2600": "atari2600",
+                    "Arcade": "arcade",
+                    "NEC TurboGrafx-16/SuperGrafx/PC Engine": "pce",
+                    "NEC PC-FX": "pcfx",
+                    "SNK NeoGeo Pocket (Color)": "ngp",
+                    "Bandai WonderSwan (Color)": "ws",
+                    "ColecoVision": "coleco",
+                    "Commodore 64": "vice_x64sc",
+                    "Commodore 128": "vice_x128",
+                    "Commodore VIC20": "vice_xvic",
+                    "Commodore Plus/4": "vice_xplus4",
+                    "Commodore PET": "vice_xpet",
+                    "DOSBOX-PURE": "dosbox_pure"
+                };
+                
+                this.populateSelectors();
+                this.setupEventListeners();
+                this.updateManualConfigVisibility();
+                
+                // Set default preset
+                this.presetSelect.value = 'mslug3';
+                this.applyPreset('mslug3');
+                
+                // Update initial connection status
+                this.updateConnectionStatus();
+            }
+            
+            populateSelectors() {
+                // Populate console selector
+                for (const type in this.coreValues) {
+                    const option = document.createElement('option');
+                    option.value = this.coreValues[type];
+                    option.textContent = type;
+                    this.consoleSelect.appendChild(option);
+                }
+                
+                // Populate preset selector
+                for (const key in this.gamePresets) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = this.gamePresets[key].name;
+                    this.presetSelect.appendChild(option);
+                }
+            }
+            
+            setupEventListeners() {
+                // File upload handlers
+                this.uploadButton.addEventListener('click', () => {
+                    this.fileInput.click();
+                });
+                
+                this.fileInput.addEventListener('change', async (event) => {
+                    if (event.target.files.length > 0) {
+                        const file = event.target.files[0];
+                        this._currentRomSource = file;
+                        this.romUrlInput.value = file.name;
+                        
+                        this.presetSelect.value = '';
+                        this.consoleSelect.value = '';
+                        this.startButton.disabled = true;
+                        
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        const autoCore = await this.detectCore(ext);
+                        
+                        if (autoCore && autoCore !== 'unknown') {
+                            this.consoleSelect.value = autoCore;
+                            this.updateStartButtonState();
+                        }
+                    }
+                });
+                
+                this.biosUploadButton.addEventListener('click', () => {
+                    this.biosFileInput.click();
+                });
+                
+                this.biosFileInput.addEventListener('change', (event) => {
+                    if (event.target.files.length > 0) {
+                        const file = event.target.files[0];
+                        this._currentBiosSource = file;
+                        this.biosUrlInput.value = file.name;
+                    }
+                });
+                
+                // URL input handlers
+                this.romUrlInput.addEventListener('input', (event) => {
+                    const url = event.target.value.trim();
+                    if (url) {
+                        this._currentRomSource = url;
+                        this.presetSelect.value = '';
+                        
+                        const filename = url.split('/').pop().split('?')[0];
+                        const ext = filename.split('.').pop().toLowerCase();
+                        this.detectCore(ext).then(autoCore => {
+                            if (autoCore && autoCore !== 'unknown') {
+                                this.consoleSelect.value = autoCore;
+                                this.updateStartButtonState();
+                            }
+                        });
+                        
+                        this.consoleSelect.disabled = false;
+                    } else {
+                        this._currentRomSource = null;
+                        this.consoleSelect.disabled = true;
+                        this.updateStartButtonState();
+                    }
+                });
+                
+                this.biosUrlInput.addEventListener('input', (event) => {
+                    const url = event.target.value.trim();
+                    if (url) {
+                        this._currentBiosSource = url;
+                    } else {
+                        this._currentBiosSource = null;
+                    }
+                });
+                
+                // Console selection
+                this.consoleSelect.addEventListener('change', () => {
+                    this.updateStartButtonState();
+                });
+                
+                // Preset selection
+                this.presetSelect.addEventListener('change', (event) => {
+                    const presetKey = event.target.value;
+                    if (presetKey) {
+                        this.applyPreset(presetKey);
+                    } else {
+                        this._currentRomSource = null;
+                        this._currentBiosSource = null;
+                        this.romUrlInput.value = '';
+                        this.biosUrlInput.value = '';
+                        this.consoleSelect.value = '';
+                        this.updateStartButtonState();
+                    }
+                });
+                
+                // Start button
+                this.startButton.addEventListener('click', () => {
+                    if (this._currentRomSource && this.consoleSelect.value) {
+                        const romName = typeof this._currentRomSource === 'string' 
+                            ? this._currentRomSource.split('/').pop().split('?')[0]
+                            : this._currentRomSource.name;
+                        
+                        const gameData = {
+                            romSource: this._currentRomSource,
+                            biosSource: this._currentBiosSource,
+                            core: this.consoleSelect.value,
+                            romName: romName
+                        };
+                        
+                        // Show loading overlay
+                        this.showLoading();
+                        
+                        // For controller mode, send via PeerJS
+                        if (this._mode === 'controller' && this._peerConnection && this._peerConnection.open) {
+                            // Can only send URLs over PeerJS, not File objects
+                            if (this._currentRomSource instanceof File || this._currentBiosSource instanceof File) {
+                                alert('File uploads are not supported in controller mode. Please use URLs or preset games.');
+                                this.hideLoading();
+                                return;
+                            }
+                            
+                            this._peerConnection.send({
+                                type: 'startGame',
+                                gameData: gameData
+                            });
+                            // Don't hide immediately - wait for game started notification
+                        } else {
+                            // Dispatch custom event
+                            this.dispatchEvent(new CustomEvent('gamestart', {
+                                detail: gameData,
+                                bubbles: true
+                            }));
+                            // Don't hide immediately - let the screen handle it
+                        }
+                    }
+                });
+            }
+            
+            updateManualConfigVisibility() {
+                if (!this.container) return;
+                
+                // Hide manual config if requested
+                if (!this._showManualConfig) {
+                    this.container.classList.add('preset-only');
+                    
+                    const separator = this.shadowRoot.querySelector('.or-separator');
+                    if (separator) separator.style.display = 'none';
+                    
+                    this.romUrlInput.style.display = 'none';
+                    this.uploadButton.style.display = 'none';
+                    this.biosUrlInput.style.display = 'none';
+                    this.biosUploadButton.style.display = 'none';
+                    this.consoleSelect.style.display = 'none';
+                    
+                    this.container.style.gridTemplateColumns = '1fr';
+                } else if (this._mode === 'controller') {
+                    // If showing manual config but in controller mode, just hide file uploads
+                    this.uploadButton.style.display = 'none';
+                    this.biosUploadButton.style.display = 'none';
+                    this.romUrlInput.placeholder = 'Enter ROM URL';
+                    this.biosUrlInput.placeholder = 'BIOS URL (optional)';
+                }
+            }
+            
+            updateStartButtonState() {
+                if (this._mode === 'controller') {
+                    const isConnected = this._peerConnection && this._peerConnection.open;
+                    this.startButton.disabled = !isConnected || !this.consoleSelect.value || !this._currentRomSource;
+                } else {
+                    this.startButton.disabled = !this.consoleSelect.value || !this._currentRomSource;
+                }
+            }
+            
+            applyPreset(presetKey) {
+                if (!presetKey || !this.gamePresets[presetKey]) {
+                    return;
+                }
+                
+                const preset = this.gamePresets[presetKey];
+                
+                this.romUrlInput.value = preset.rom;
+                this.biosUrlInput.value = preset.bios || '';
+                
+                this._currentRomSource = preset.rom;
+                this._currentBiosSource = preset.bios;
+                
+                this.consoleSelect.value = preset.core;
+                this.updateStartButtonState();
+            }
+            
+            async detectCore(ext) {
+                if (["fds", "nes", "unif", "unf"].includes(ext)) return "nes";
+                if (["smc", "fig", "sfc", "gd3", "gd7", "dx2", "bsx", "swc"].includes(ext)) return "snes";
+                if (["z64", "n64"].includes(ext)) return "n64";
+                if (["pce"].includes(ext)) return "pce";
+                if (["ngp", "ngc"].includes(ext)) return "ngp";
+                if (["ws", "wsc"].includes(ext)) return "ws";
+                if (["col", "cv"].includes(ext)) return "coleco";
+                if (["d64"].includes(ext)) return "vice_x64sc";
+                if (["nds", "gba", "gb", "z64", "n64"].includes(ext)) return ext;
+                return 'unknown';
+            }
+            
+            hide() {
+                this.container.classList.add('hidden');
+                this.hideLoading(); // Also hide loading when hiding menu
+            }
+            
+            show() {
+                this.container.classList.remove('hidden');
+                this.hideLoading(); // Reset loading state when showing menu
+            }
+            
+            showLoading() {
+                if (this.loadingOverlay) {
+                    this.loadingOverlay.classList.add('active');
+                }
+            }
+            
+            hideLoading() {
+                if (this.loadingOverlay) {
+                    this.loadingOverlay.classList.remove('active');
+                }
+            }
+
+            setPeerConnection(peerConnection) {
+                this._peerConnection = peerConnection;
+                this.updateConnectionStatus();
+            }
+
+            updateConnectionStatus() {
+                if (this._mode === 'controller') {
+                    const isConnected = this._peerConnection && this._peerConnection.open;
+                    
+                    // Disable/enable all interactive elements
+                    this.presetSelect.disabled = !isConnected;
+                    this.romUrlInput.disabled = !isConnected;
+                    this.biosUrlInput.disabled = !isConnected;
+                    this.consoleSelect.disabled = !isConnected;
+                    this.updateStartButtonState();
+                    
+                    // Update visual styling
+                    if (!isConnected) {
+                        this.container.classList.add('disabled-overlay');
+                        
+                        let statusMsg = this.shadowRoot.querySelector('.connection-status');
+                        if (!statusMsg) {
+                            statusMsg = document.createElement('div');
+                            statusMsg.className = 'connection-status';
+                            statusMsg.textContent = 'Waiting for connection to screen...';
+                            this.container.appendChild(statusMsg);
+                        }
+                    } else {
+                        this.container.classList.remove('disabled-overlay');
+                        const statusMsg = this.shadowRoot.querySelector('.connection-status');
+                        if (statusMsg) {
+                            statusMsg.remove();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Register the web component
+        customElements.define('game-menu', GameMenuElement);
+    </script>
+</body>
+</html>

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmulatorJS Game</title>
+    <script>
+        // Disable WakeLock by intercepting errors
+        const originalRequest = navigator.wakeLock?.request;
+        if (originalRequest) {
+            navigator.wakeLock.request = async function(...args) {
+                try {
+                    return await originalRequest.apply(this, args);
+                } catch (error) {
+                    console.log('WakeLock error caught and ignored:', error.message);
+                    // Return a mock wake lock sentinel
+                    return {
+                        released: false,
+                        type: args[0],
+                        release: async () => Promise.resolve(),
+                        addEventListener: () => {},
+                        removeEventListener: () => {}
+                    };
+                }
+            };
+        }
+    </script>
+    <script src="https://www.airconsole.com/api/airconsole-1.9.0.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .game-container {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        #game {
+            min-height: 60vh;
+            width: 100%;
+            height: 100%;
+        }
+        .loading {
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+        }
+        .status-dot {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            z-index: 1000;
+            transition: all 0.3s ease;
+            opacity: 0;
+        }
+        .status-dot.connecting {
+            background: #FF9800;
+            opacity: 0.5;
+            animation: blink 1s ease-in-out infinite;
+        }
+        .status-dot.connected {
+            opacity: 1;
+            animation: breathe 2s ease-in-out infinite;
+        }
+        .status-dot.player-0 { background: #4CAF50; box-shadow: 0 0 15px rgba(76, 175, 80, 0.6); }
+        .status-dot.player-1 { background: #2196F3; box-shadow: 0 0 15px rgba(33, 150, 243, 0.6); }
+        .status-dot.player-2 { background: #9C27B0; box-shadow: 0 0 15px rgba(156, 39, 176, 0.6); }
+        .status-dot.player-3 { background: #FFC107; box-shadow: 0 0 15px rgba(255, 193, 7, 0.6); }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        
+        @keyframes breathe {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+        }
+        
+        /* Optional: Add subtle border glow */
+        body.connected {
+            position: relative;
+        }
+        body.connected::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            opacity: 0.3;
+            transition: all 0.5s ease;
+        }
+        body.connected.player-0::before { border: 2px solid #4CAF50; }
+        body.connected.player-1::before { border: 2px solid #2196F3; }
+        body.connected.player-2::before { border: 2px solid #9C27B0; }
+        body.connected.player-3::before { border: 2px solid #FFC107; }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div id="game">
+            <div class="loading">Mobile Controller</div>
+        </div>
+    </div>
+    <div class="status-dot" id="statusDot"></div>
+    
+    <!-- Game menu web component -->
+    <game-menu id="gameMenu" mode="controller" show-manual-config="false"></game-menu>
+
+    <script type="text/javascript">
+        // Basic EmulatorJS configuration for controls-only mode
+        EJS_player = '#game';
+        EJS_core = 'arcade'; // Dummy core for controls configuration
+        // No game URL needed in controls-only mode
+        EJS_gameName = "mslug3";
+        // EJS_gameUrl = "mslug3.zip";
+        // EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+        EJS_pathtodata = 'EmulatorJS/data/';
+        
+        // Netplay configuration
+        EJS_DEBUG_XX = true;
+        EJS_EXPERIMENTAL_NETPLAY = true;
+
+        // EJS_startOnLoaded = true;
+        EJS_controlsOnly = true;
+        EJS_volume = 0.1;
+
+        // UI customization
+        // https://emulatorjs.org/docs/options#ejs_buttons
+        EJS_Buttons = {
+            playPause: true,
+            restart: true,
+            mute: true,
+            settings: true,
+            fullscreen: true,
+            saveState: false,
+            loadState: false,
+            screenRecord: false,
+            gamepad: true,
+            cheat: true,
+            volume: true,
+            saveSavFiles: false,
+            loadSavFiles: false,
+            quickSave: true,
+            quickLoad: true,
+            screenshot: false,
+            cacheManager: false,
+            exitEmulation: false,
+            netplay: true,
+            // custom buttons
+            closeMenu: {
+                visible: true,
+                displayName: "Close Menu",
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+                callback: () => {
+                    EJS_emulator.menu.close();
+                }
+            },
+            resetToMenu: {
+                visible: true,
+                displayName: "Reset to Menu",
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+                callback: () => {
+                    // Send reset command to screen
+                    if (displayConn && displayConn.open) {
+                        displayConn.send({ type: 'resetToMenu' });
+                    }
+                }
+            }
+        };
+
+        if (typeof AirConsole !== 'undefined') {
+            const airconsole = new AirConsole();
+            // AirConsole event handlers
+            airconsole.onReady = function() {
+                console.log('AirConsole ready on screen');
+            };
+            airconsole.onConnect = function(device_id) {
+                console.log('Device connected:', device_id);
+            };
+            airconsole.onDisconnect = function(device_id) {
+                console.log('Device disconnected:', device_id);
+            };
+            airconsole.onMessage = function(device_id, data) {
+                console.log('Message received from device:', device_id, data);
+            };
+        }
+
+        // PeerJS setup - Controller is sender
+        let peer;
+        let displayConn;
+        let heartbeatInterval;
+        let heartbeatTimeoutInterval;
+        let playerNumber = null;
+        let controllerId = null;
+        let lastScreenHeartbeat = 0;
+        
+        function initializePeer() {
+            // Generate a random ID using crypto API
+            const array = new Uint8Array(8);
+            crypto.getRandomValues(array);
+            controllerId = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').substr(0, 6);
+            
+            peer = new Peer(controllerId, {
+                config: {
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                }
+            });
+            peer.on('open', (id) => {
+                console.log('Controller ready:', id);
+                updateStatus('connecting');
+                setTimeout(autoConnect, 1000);
+            });
+            peer.on('error', (error) => {
+                console.error('Peer error:', error);
+                updateStatus('disconnected', 'Connection failed');
+            });
+        }
+        
+        function updateStatus(state, playerNum = null) {
+            const statusDot = document.getElementById('statusDot');
+            const body = document.body;
+            
+            // Reset classes
+            statusDot.className = 'status-dot';
+            body.className = '';
+            
+            // Apply state
+            statusDot.classList.add(state);
+            
+            // If connected with player number, add player-specific styling
+            if (state === 'connected' && playerNum !== null) {
+                statusDot.classList.add(`player-${playerNum}`);
+                body.classList.add('connected', `player-${playerNum}`);
+            }
+        }
+        
+        function handleGameStarted() {
+            console.log('Game started notification received');
+            
+            // Load emulator controls if not loaded
+            if (!window.EJS_emulator) {
+                const script = document.createElement('script');
+                script.src = 'EmulatorJS/data/loader.js';
+                script.onload = () => {
+                    console.log('EmulatorJS loaded for controller');
+                };
+                document.body.appendChild(script);
+            }
+            
+            // Hide menu (including loading) and show controls
+            if (gameMenu) {
+                gameMenu.hide();
+            }
+            document.getElementById('game').style.display = 'block';
+        }
+        
+        function handleGameReset() {
+            console.log('Game reset notification received');
+            
+            // Show menu and hide controls
+            if (gameMenu) {
+                gameMenu.show();
+            }
+            document.getElementById('game').style.display = 'none';
+            
+            // Note: We don't unload EmulatorJS here in case a new game starts soon
+            // It will just be reused when needed
+        }
+        function connectToScreen(screenId = 'emulator-screen') {
+            if (!peer) return;
+            displayConn = peer.connect(screenId);
+            displayConn.on('open', () => {
+                console.log('Connected to screen');
+                // Status will be updated when player assignment is received
+                
+                // Update game menu's peer connection
+                if (gameMenu) {
+                    gameMenu.setPeerConnection(displayConn);
+                }
+                
+                // Start sending heartbeats
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                heartbeatInterval = setInterval(() => {
+                    if (displayConn && displayConn.open) {
+                        displayConn.send({ type: 'heartbeat' });
+                    }
+                }, 2000);
+                
+                // Start monitoring screen heartbeats
+                lastScreenHeartbeat = Date.now();
+                if (heartbeatTimeoutInterval) clearInterval(heartbeatTimeoutInterval);
+                heartbeatTimeoutInterval = setInterval(() => {
+                    if (Date.now() - lastScreenHeartbeat > 4000) {
+                        // No heartbeat from screen for 4 seconds, consider disconnected
+                        console.log('Screen timeout detected');
+                        if (displayConn && displayConn.open) {
+                            displayConn.close();
+                        }
+                        // Trigger auto-reconnect immediately
+                        setTimeout(autoConnect, 1000);
+                    }
+                }, 1000);
+            });
+            
+            displayConn.on('data', (data) => {
+                if (data.type === 'heartbeat') {
+                    lastScreenHeartbeat = Date.now();
+                    return;
+                }
+                if (data.type === 'playerAssignment') {
+                    playerNumber = data.playerNumber;
+                    console.log('Assigned as Player', playerNumber + 1);
+                    updateStatus('connected', playerNumber);
+                }
+                if (data.type === 'gameStarted') {
+                    handleGameStarted();
+                }
+                if (data.type === 'gameReset') {
+                    handleGameReset();
+                }
+            });
+            displayConn.on('close', () => {
+                console.log('Disconnected from screen');
+                updateStatus('disconnected');
+                
+                // Clear heartbeats
+                if (heartbeatInterval) {
+                    clearInterval(heartbeatInterval);
+                    heartbeatInterval = null;
+                }
+                if (heartbeatTimeoutInterval) {
+                    clearInterval(heartbeatTimeoutInterval);
+                    heartbeatTimeoutInterval = null;
+                }
+                
+                // Clear player assignment
+                playerNumber = null;
+                
+                // Update game menu connection status
+                if (gameMenu) {
+                    gameMenu.setPeerConnection(null);
+                }
+                
+                // Don't hide the game controls if game was already started
+                // They will be shown again when reconnected and game is still running
+                
+                displayConn = null;
+                // Auto-reconnect after 2 seconds
+                setTimeout(autoConnect, 2000);
+            });
+            displayConn.on('error', (error) => {
+                console.error('Connection error:', error);
+                updateStatus('disconnected');
+                
+                // Clear heartbeats
+                if (heartbeatInterval) {
+                    clearInterval(heartbeatInterval);
+                    heartbeatInterval = null;
+                }
+                if (heartbeatTimeoutInterval) {
+                    clearInterval(heartbeatTimeoutInterval);
+                    heartbeatTimeoutInterval = null;
+                }
+                
+                // Update game menu connection status
+                if (gameMenu) {
+                    gameMenu.setPeerConnection(null);
+                }
+                
+                setTimeout(autoConnect, 3000);
+            });
+        }
+        function autoConnect() {
+            if (!peer || displayConn?.open) return;
+            console.log('Auto-connecting...');
+            updateStatus('connecting');
+            connectToScreen();
+        }
+        
+        // Periodic auto-reconnect check
+        setInterval(() => {
+            if (peer && !displayConn?.open) {
+                console.log('Periodic reconnect check - attempting connection');
+                autoConnect();
+            }
+        }, 5000); // Check every 5 seconds
+
+        // Initialize PeerJS when page loads
+        initializePeer();
+        
+        // Game menu instance
+        let gameMenu = null;
+        
+        // Load the game menu web component
+        async function loadGameMenuComponent() {
+            try {
+                const response = await fetch('game-menu.html');
+                const html = await response.text();
+                
+                // Extract and execute the script
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const script = doc.querySelector('script[type="module"]');
+                
+                if (script) {
+                    const scriptElement = document.createElement('script');
+                    scriptElement.type = 'module';
+                    scriptElement.textContent = script.textContent;
+                    document.head.appendChild(scriptElement);
+                    
+                    // Wait for custom element to be defined
+                    await customElements.whenDefined('game-menu');
+                    
+                    gameMenu = document.getElementById('gameMenu');
+                    if (gameMenu) {
+                        // Hide emulator controls when menu is shown
+                        document.getElementById('game').style.display = 'none';
+                        
+                        // Update connection when established
+                        if (displayConn) {
+                            gameMenu.setPeerConnection(displayConn);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load game menu component:', error);
+            }
+        }
+        
+        loadGameMenuComponent();
+        
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            if (heartbeatTimeoutInterval) {
+                clearInterval(heartbeatTimeoutInterval);
+            }
+            if (displayConn && displayConn.open) {
+                displayConn.close();
+            }
+            if (peer) {
+                peer.destroy();
+            }
+        });
+
+        // Event callbacks
+        EJS_ready = function() {
+            console.log('EmulatorJS is ready!');
+        };
+
+        // Custom command overrides
+        EJS_commands = {
+            'control.pause': (op) => {
+                return EJS_emulator.togglePlaying(op.params.dontUpdate);
+            },
+        }
+
+        EJS_onCommand = function(event) {
+            console.log(`Operation: ${event.method}`, event);
+
+            // Dont send commands to screen
+            switch (event.method) {
+                case 'control.fullscreen':
+                    return;
+                case 'input.simulate':
+                    // Use assigned player number
+                    event.params.player = playerNumber !== null ? playerNumber : 0;
+                    break;
+                default:
+                    break;
+            }
+
+            if (displayConn && displayConn.open) {
+                const result = displayConn.send(event);
+                console.log('Command sent, result:', result);
+            }
+        };
+    </script>
+</body>
+</html>
