@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EmulatorJS Game</title>
+    <title>RetroBox Controller</title>
     <script>
         // Disable WakeLock by intercepting errors
         const originalRequest = navigator.wakeLock?.request;
@@ -25,57 +25,69 @@
             };
         }
     </script>
-    <script src="https://www.airconsole.com/api/airconsole-1.9.0.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <style>
-        body {
+        * {
+            box-sizing: border-box;
+        }
+        
+        html, body {
             margin: 0;
             padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
             background-color: #1a1a1a;
             font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            overflow-x: hidden;
+            position: fixed;
+            top: 0;
+            left: 0;
         }
-        .game-container {
-            width: 100%;
-            height: 100%;
-            border-radius: 8px;
-            overflow: hidden;
-            position: relative;
-        }
+        
         #game {
-            min-height: 60vh;
-            width: 100%;
-            height: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            width: 100dvw;
+            height: 100dvh;
         }
+        
         .loading {
             color: #fff;
             text-align: center;
             padding: 20px;
-        }
-        .status-dot {
             position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .status-dot {
+            position: fixed;
             top: 15px;
             right: 15px;
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            z-index: 1000;
+            z-index: 9999;
             transition: all 0.3s ease;
             opacity: 0;
+            pointer-events: none;
         }
+        
         .status-dot.connecting {
             background: #FF9800;
             opacity: 0.5;
             animation: blink 1s ease-in-out infinite;
         }
+        
         .status-dot.connected {
             opacity: 1;
             animation: breathe 2s ease-in-out infinite;
         }
+        
         .status-dot.player-0 { background: #4CAF50; box-shadow: 0 0 15px rgba(76, 175, 80, 0.6); }
         .status-dot.player-1 { background: #2196F3; box-shadow: 0 0 15px rgba(33, 150, 243, 0.6); }
         .status-dot.player-2 { background: #9C27B0; box-shadow: 0 0 15px rgba(156, 39, 176, 0.6); }
@@ -87,124 +99,231 @@
         }
         
         @keyframes breathe {
-            0%, 100% { 
+            0%, 100% {
                 transform: scale(1);
                 opacity: 1;
             }
-            50% { 
+            50% {
                 transform: scale(1.2);
                 opacity: 0.8;
             }
         }
-        
-        /* Optional: Add subtle border glow */
-        body.connected {
-            position: relative;
+
+        /* Test Controller Component */
+        .test-controller {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 999;
+            width: max(280px, 25vw);
+            max-width: 85vw;
+            pointer-events: auto;
         }
-        body.connected::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            pointer-events: none;
-            opacity: 0.3;
-            transition: all 0.5s ease;
+
+        .test-controller-toggle {
+            width: 100%;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
         }
-        body.connected.player-0::before { border: 2px solid #4CAF50; }
-        body.connected.player-1::before { border: 2px solid #2196F3; }
-        body.connected.player-2::before { border: 2px solid #9C27B0; }
-        body.connected.player-3::before { border: 2px solid #FFC107; }
+
+        .test-controller-toggle:hover {
+            background-color: rgba(0, 0, 0, 0.9);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        .test-controller-toggle .emoji {
+            font-size: 20px;
+        }
+
+        .test-controller-toggle .arrow {
+            font-size: 12px;
+            transition: transform 0.3s ease;
+        }
+
+        .test-controller.expanded .test-controller-toggle .arrow {
+            transform: rotate(180deg);
+        }
+
+        .test-controller-links {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 12px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .test-controller.expanded .test-controller-links {
+            display: flex;
+        }
+
+        .test-controller-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: #1AAFFF;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .test-controller-link:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-color: #1AAFFF;
+        }
+
+        /* Landscape adjustments */
+        @media (orientation: landscape) and (max-height: 600px) {
+            .test-controller {
+                bottom: 10px;
+                width: max(250px, 20vw);
+            }
+
+            .test-controller-toggle {
+                height: 38px;
+                font-size: 14px;
+            }
+
+            .test-controller-links {
+                padding: 10px;
+                gap: 6px;
+            }
+
+            .test-controller-link {
+                height: 35px;
+                font-size: 13px;
+            }
+        }
+
+        /* Hide when game is active */
+        .test-controller.hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <div class="game-container">
-        <div id="game">
-            <div class="loading">Mobile Controller</div>
-        </div>
+    <div id="game">
+        <div class="loading">Mobile Controller</div>
     </div>
     <div class="status-dot" id="statusDot"></div>
-    
+
+    <!-- Test Controller Component -->
+    <div class="test-controller" id="testController">
+        <button class="test-controller-toggle" id="testControllerToggle">
+            <span class="emoji">🎮</span>
+            <span>Test Controller</span>
+            <span class="arrow">▼</span>
+        </button>
+        <div class="test-controller-links">
+            <a href="https://hardwaretester.com/gamepad" target="_blank" rel="noopener" class="test-controller-link">
+                hardwaretester.com/gamepad
+            </a>
+            <a href="https://gamepadtester.com/" target="_blank" rel="noopener" class="test-controller-link">
+                gamepadtester.com
+            </a>
+        </div>
+    </div>
+
     <!-- Game menu web component -->
     <game-menu id="gameMenu" mode="controller" show-manual-config="false"></game-menu>
 
     <script type="text/javascript">
-        // Basic EmulatorJS configuration for controls-only mode
+        // Controls-only mode configuration (core will be set when game starts)
         EJS_player = '#game';
-        EJS_core = 'arcade'; // Dummy core for controls configuration
-        // No game URL needed in controls-only mode
-        EJS_gameName = "mslug3";
-        // EJS_gameUrl = "mslug3.zip";
-        // EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
         EJS_pathtodata = 'EmulatorJS/data/';
-        
-        // Netplay configuration
-        EJS_DEBUG_XX = true;
-        EJS_EXPERIMENTAL_NETPLAY = true;
-
-        // EJS_startOnLoaded = true;
         EJS_controlsOnly = true;
-        EJS_volume = 0.1;
+        EJS_DEBUG_XX = true; // Enable debug mode to see button configuration logs
+        // EJS_core will be set dynamically when we receive game info from screen
 
-        // UI customization
-        // https://emulatorjs.org/docs/options#ejs_buttons
+        // Configure which buttons to show in the bottom nav (menu) for mobile devices
         EJS_Buttons = {
+            // Show these buttons
             playPause: true,
             restart: true,
             mute: true,
             settings: true,
             fullscreen: true,
-            saveState: false,
-            loadState: false,
-            screenRecord: false,
+            saveState: true,
+            loadState: true,
             gamepad: true,
             cheat: true,
             volume: true,
+            // Hide these buttons
+            netplay: false,
+            screenRecord: false,
             saveSavFiles: false,
             loadSavFiles: false,
-            quickSave: true,
-            quickLoad: true,
+            quickSave: false,
+            quickLoad: false,
             screenshot: false,
             cacheManager: false,
             exitEmulation: false,
-            netplay: true,
-            // custom buttons
-            closeMenu: {
+            // Custom home button to return to game selection
+            home: {
                 visible: true,
-                displayName: "Close Menu",
-                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+                displayName: "Menu",
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
                 callback: () => {
-                    EJS_emulator.menu.close();
-                }
-            },
-            resetToMenu: {
-                visible: true,
-                displayName: "Reset to Menu",
-                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
-                callback: () => {
-                    // Send reset command to screen
+                    // Send reset to menu command via PeerJS connection (matches screen.html handler)
                     if (displayConn && displayConn.open) {
                         displayConn.send({ type: 'resetToMenu' });
+                        console.log('Home button pressed - requesting reset to menu');
                     }
                 }
             }
         };
 
-        if (typeof AirConsole !== 'undefined') {
-            const airconsole = new AirConsole();
-            // AirConsole event handlers
-            airconsole.onReady = function() {
-                console.log('AirConsole ready on screen');
-            };
-            airconsole.onConnect = function(device_id) {
-                console.log('Device connected:', device_id);
-            };
-            airconsole.onDisconnect = function(device_id) {
-                console.log('Device disconnected:', device_id);
-            };
-            airconsole.onMessage = function(device_id, data) {
-                console.log('Message received from device:', device_id, data);
+        // Function to get the EJS_Buttons config (needed for dynamic emulator reloads)
+        function getEJSButtonsConfig() {
+            return {
+                playPause: true,
+                restart: true,
+                mute: true,
+                settings: true,
+                fullscreen: true,
+                saveState: true,
+                loadState: true,
+                gamepad: true,
+                cheat: true,
+                volume: true,
+                netplay: false,
+                screenRecord: false,
+                saveSavFiles: false,
+                loadSavFiles: false,
+                quickSave: false,
+                quickLoad: false,
+                screenshot: false,
+                cacheManager: false,
+                exitEmulation: false,
+                home: {
+                    visible: true,
+                    displayName: "Menu",
+                    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
+                    callback: () => {
+                        if (displayConn && displayConn.open) {
+                            displayConn.send({ type: 'resetToMenu' });
+                            console.log('Home button pressed - requesting reset to menu');
+                        }
+                    }
+                }
             };
         }
 
@@ -257,37 +376,88 @@
             }
         }
         
-        function handleGameStarted() {
-            console.log('Game started notification received');
-            
-            // Load emulator controls if not loaded
-            if (!window.EJS_emulator) {
-                const script = document.createElement('script');
-                script.src = 'EmulatorJS/data/loader.js';
-                script.onload = () => {
-                    console.log('EmulatorJS loaded for controller');
-                };
-                document.body.appendChild(script);
-            }
-            
-            // Hide menu (including loading) and show controls
+        let emulatorLoaded = false;
+        let currentCore = null;
+        
+        function handleGameStarted(core) {
+            console.log('Game started notification received, core:', core);
+
+            // Hide menu and show controls
             if (gameMenu) {
                 gameMenu.hide();
             }
             document.getElementById('game').style.display = 'block';
+
+            // Hide test controller component
+            const testController = document.getElementById('testController');
+            if (testController) {
+                testController.classList.add('hidden');
+            }
+
+            // Load EmulatorJS with the correct core for gamepad layout
+            if (!emulatorLoaded || currentCore !== core) {
+                currentCore = core;
+                window.EJS_core = core || 'arcade';
+
+                // If already loaded, we need to reinitialize
+                if (emulatorLoaded && window.EJS_emulator) {
+                    // Clear existing emulator
+                    const gameDiv = document.getElementById('game');
+                    gameDiv.innerHTML = '';
+                    window.EJS_emulator = null;
+                }
+
+                // Refresh EJS_Buttons config before loading (ensures callback references are fresh)
+                window.EJS_Buttons = getEJSButtonsConfig();
+
+                const script = document.createElement('script');
+                script.src = 'EmulatorJS/data/loader.js';
+                script.onload = () => {
+                    console.log('EmulatorJS loaded for controller with core:', core);
+                    emulatorLoaded = true;
+                };
+                document.body.appendChild(script);
+            }
         }
         
         function handleGameReset() {
             console.log('Game reset notification received');
-            
+
             // Show menu and hide controls
             if (gameMenu) {
                 gameMenu.show();
             }
             document.getElementById('game').style.display = 'none';
-            
+
+            // Show test controller component
+            const testController = document.getElementById('testController');
+            if (testController) {
+                testController.classList.remove('hidden');
+            }
+
             // Note: We don't unload EmulatorJS here in case a new game starts soon
             // It will just be reused when needed
+        }
+        
+        function handleStateUpdate(data) {
+            console.log('State update received:', data);
+            
+            switch (data.state) {
+                case 'game-ready':
+                    // Game is running - load controls with the correct core
+                    handleGameStarted(data.core);
+                    break;
+                case 'game-selection':
+                    // Back to menu
+                    handleGameReset();
+                    break;
+                case 'game-pending':
+                    // Game is loading - show loading state
+                    if (gameMenu) {
+                        gameMenu.setLoadingText(`Loading ${data.gameName || 'game'}...`);
+                    }
+                    break;
+            }
         }
         function connectToScreen(screenId = 'emulator-screen') {
             if (!peer) return;
@@ -335,11 +505,8 @@
                     console.log('Assigned as Player', playerNumber + 1);
                     updateStatus('connected', playerNumber);
                 }
-                if (data.type === 'gameStarted') {
-                    handleGameStarted();
-                }
-                if (data.type === 'gameReset') {
-                    handleGameReset();
+                if (data.type === 'stateUpdate') {
+                    handleStateUpdate(data);
                 }
             });
             displayConn.on('close', () => {
@@ -470,20 +637,14 @@
 
         // Event callbacks
         EJS_ready = function() {
-            console.log('EmulatorJS is ready!');
+            console.log('EmulatorJS controls ready!');
         };
 
-        // Custom command overrides
-        EJS_commands = {
-            'control.pause': (op) => {
-                return EJS_emulator.togglePlaying(op.params.dontUpdate);
-            },
-        }
-
+        // Command handler - send input events to screen
         EJS_onCommand = function(event) {
             console.log(`Operation: ${event.method}`, event);
 
-            // Dont send commands to screen
+            // Don't send certain commands to screen
             switch (event.method) {
                 case 'control.fullscreen':
                     return;
@@ -500,6 +661,12 @@
                 console.log('Command sent, result:', result);
             }
         };
+
+        // Test Controller toggle handler
+        document.getElementById('testControllerToggle').addEventListener('click', () => {
+            const testController = document.getElementById('testController');
+            testController.classList.toggle('expanded');
+        });
     </script>
 </body>
 </html>

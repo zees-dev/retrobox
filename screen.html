@@ -13,7 +13,6 @@
                     return await originalRequest.apply(this, args);
                 } catch (error) {
                     console.log('WakeLock error caught and ignored:', error.message);
-                    // Return a mock wake lock sentinel
                     return {
                         released: false,
                         type: args[0],
@@ -28,15 +27,18 @@
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        body {
+        html, body {
             margin: 0;
             padding: 0;
+            width: 100%;
+            height: 100%;
             background-color: #1a1a1a;
             font-family: Arial, sans-serif;
+        }
+        body {
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
         }
         .game-container {
             width: 100%;
@@ -60,7 +62,6 @@
             font-size: 18px;
             z-index: 100;
         }
-        
         .loading-spinner {
             margin: 20px auto;
             width: 50px;
@@ -70,11 +71,9 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
-        
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-        
         #loadingOverlay {
             position: fixed;
             top: 0;
@@ -88,7 +87,7 @@
             justify-content: center;
         }
         .controllers {
-            position: absolute;
+            position: fixed;
             top: 15px;
             right: 15px;
             z-index: 1000;
@@ -109,33 +108,30 @@
             border: none;
             animation: fadeIn 0.5s ease, pulse 2s ease-in-out infinite;
         }
-        .controller-dot.player-0 { background: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
-        .controller-dot.player-1 { background: #2196F3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.5); }
-        .controller-dot.player-2 { background: #9C27B0; box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
-        .controller-dot.player-3 { background: #FFC107; box-shadow: 0 0 10px rgba(255, 193, 7, 0.5); }
+        .controller-dot.active.player-0 { background: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
+        .controller-dot.active.player-1 { background: #2196F3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.5); }
+        .controller-dot.active.player-2 { background: #9C27B0; box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
+        .controller-dot.active.player-3 { background: #FFC107; box-shadow: 0 0 10px rgba(255, 193, 7, 0.5); }
         
+        /* Reserved state - player disconnected but slot held for reconnection */
+        .controller-dot.reserved {
+            width: 8px;
+            height: 8px;
+            opacity: 0.4;
+            animation: none;
+        }
+        .controller-dot.reserved.player-0 { background: #4CAF50; box-shadow: none; }
+        .controller-dot.reserved.player-1 { background: #2196F3; box-shadow: none; }
+        .controller-dot.reserved.player-2 { background: #9C27B0; box-shadow: none; }
+        .controller-dot.reserved.player-3 { background: #FFC107; box-shadow: none; }
         @keyframes fadeIn {
-            from { 
-                opacity: 0; 
-                transform: scale(0.5);
-            }
-            to { 
-                opacity: 1; 
-                transform: scale(1);
-            }
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
         }
-        
         @keyframes pulse {
-            0%, 100% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% { 
-                transform: scale(1.2);
-                opacity: 0.8;
-            }
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
         }
-        
         .qr-container {
             position: fixed;
             top: 20px;
@@ -147,14 +143,15 @@
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             transition: opacity 0.3s ease, transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        
         .qr-container.hidden {
             opacity: 0;
             transform: translateY(-20px);
             pointer-events: none;
         }
-        
         .qr-code-display {
             background: white;
             padding: 10px;
@@ -162,37 +159,93 @@
             display: inline-block;
             margin: 5px 0;
         }
-        
+        .qr-code-display img,
+        .qr-code-display canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
         .qr-text {
             color: rgba(255, 255, 255, 0.8);
-            font-size: 12px;
+            font-size: max(12px, min(2.5vw, 2.5vh));
             margin-bottom: 8px;
+            font-weight: 500;
         }
-        
         .qr-url {
             color: #4a9eff;
-            font-size: 11px;
+            font-size: max(11px, min(2vw, 2vh));
             font-family: monospace;
             margin-top: 8px;
             word-break: break-all;
+            text-decoration: none;
+            transition: color 0.2s ease;
+            display: block;
+            max-width: 100%;
+        }
+        .qr-url:hover {
+            color: #7bc0ff;
+            text-decoration: underline;
+        }
+        
+        /* Audio muted indicator - non-blocking */
+        #audioMutedIndicator {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            z-index: 3000;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            animation: fade-in 0.3s ease;
+        }
+        #audioMutedIndicator.visible {
+            display: flex;
+        }
+        #audioMutedIndicator .icon {
+            font-size: 24px;
+        }
+        #audioMutedIndicator .text {
+            opacity: 0.9;
+        }
+        #audioMutedIndicator .hint {
+            font-size: 12px;
+            opacity: 0.6;
+        }
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
     </style>
 </head>
 <body>
     <div class="qr-container" id="qrContainer">
-        <div class="qr-text">Scan to connect controller:</div>
+        <div class="qr-text">Scan to connect</div>
         <div class="qr-code-display" id="qrCodeDisplay"></div>
-        <div class="qr-url" id="qrUrl"></div>
+        <a class="qr-url" id="qrUrl" href="#" target="_blank" rel="noopener"></a>
     </div>
     <div class="game-container">
-        <div id="game">
-            <div class="loading">Loading emulator...</div>
-        </div>
+        <div id="game"></div>
     </div>
     <div id="loadingOverlay">
         <div class="loading">
             <div class="loading-spinner"></div>
-            <div id="loadingText">Loading...</div>
+        </div>
+    </div>
+    
+    <!-- Audio muted indicator - non-blocking, game continues to run -->
+    <div id="audioMutedIndicator">
+        <span class="icon">🔇</span>
+        <div>
+            <div class="text">Audio muted</div>
+            <div class="hint">Press any key or tap to enable</div>
         </div>
     </div>
     <div class="controllers" id="controllers"></div>
@@ -201,21 +254,108 @@
     <game-menu id="gameMenu" mode="screen"></game-menu>
 
     <script type="text/javascript">
-        // Game state
+        // ============================================
+        // SCREEN STATE MACHINE
+        // States: 'game-selection' | 'game-pending' | 'game-ready'
+        // ============================================
+        
+        const ScreenState = {
+            GAME_SELECTION: 'game-selection',
+            GAME_PENDING: 'game-pending',
+            GAME_READY: 'game-ready'
+        };
+        
+        let currentState = ScreenState.GAME_SELECTION;
         let pendingROM = null;
-        let gameStarted = false;
+        let isPaused = false;
 
-        // PeerJS setup - Screen is receiver
+        // Get current state info to send to controllers
+        function getStateInfo() {
+            return {
+                type: 'stateUpdate',
+                state: currentState,
+                gameName: pendingROM?.name || null,
+                core: pendingROM?.core || null,
+                isPaused: isPaused
+            };
+        }
+        
+        // Change state and broadcast to all controllers
+        function setState(newState) {
+            if (currentState === newState) return;
+            
+            console.log(`State change: ${currentState} -> ${newState}`);
+            currentState = newState;
+            
+            // Update screen UI based on state
+            updateScreenUI();
+            
+            // Broadcast state to all connected controllers
+            broadcastToControllers(getStateInfo());
+        }
+        
+        // Broadcast message to all connected controllers
+        function broadcastToControllers(message) {
+            controllerConnections.forEach((conn, controllerId) => {
+                if (conn && conn.open) {
+                    conn.send(message);
+                }
+            });
+        }
+        
+        // Update screen UI based on current state
+        function updateScreenUI() {
+            switch (currentState) {
+                case ScreenState.GAME_SELECTION:
+                    if (gameMenu) gameMenu.show();
+                    showQRCode();
+                    break;
+                case ScreenState.GAME_PENDING:
+                    if (gameMenu) {
+                        gameMenu.setLoadingText(`Loading ${pendingROM?.name || 'game'}...`);
+                        gameMenu.showLoading();
+                    }
+                    break;
+                case ScreenState.GAME_READY:
+                    if (gameMenu) gameMenu.hide();
+                    if (!isPaused) hideQRCode();
+                    break;
+            }
+        }
+
+        // ============================================
+        // PEERJS SETUP - Screen is the server
+        // ============================================
+        
         let peer;
         let controllerConnections = new Map();
         let heartbeatIntervals = new Map();
         let playerNumbers = new Map();
-        let nextPlayerNumber = 0;
+        let noControllerResetTimeout = null;
         
-        // QR Code management
-        let qrCodeGenerated = false;
-        let isPaused = false;
-
+        // Start timer to reset to menu if no controllers connected for 20s
+        function startNoControllerResetTimer() {
+            clearNoControllerResetTimer();
+            
+            // Only reset if we're in game-ready state (no need if already in selection)
+            if (currentState === ScreenState.GAME_READY) {
+                console.log('No controllers connected, will reset to menu in 20s...');
+                noControllerResetTimeout = setTimeout(() => {
+                    if (controllerConnections.size === 0 && currentState === ScreenState.GAME_READY) {
+                        console.log('No controllers for 20s, resetting to game menu');
+                        resetToGameMenu();
+                    }
+                }, 20000);
+            }
+        }
+        
+        function clearNoControllerResetTimer() {
+            if (noControllerResetTimeout) {
+                clearTimeout(noControllerResetTimeout);
+                noControllerResetTimeout = null;
+            }
+        }
+        
         function initializePeer() {
             const screenId = 'emulator-screen';
             peer = new Peer(screenId, {
@@ -223,215 +363,300 @@
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 }
             });
+            
             peer.on('open', (id) => {
                 console.log('Screen ready:', id);
             });
-            peer.on('connection', (conn) => {
-                const controllerId = conn.peer;
-                conn.on('open', () => {
-                    controllerConnections.set(controllerId, conn);
-                    
-                    // Assign player number
-                    const playerNumber = getNextAvailablePlayerNumber();
-                    playerNumbers.set(controllerId, playerNumber);
-                    
-                    console.log('Controller connected:', controllerId, 'as Player', playerNumber + 1);
-                    
-                    // Send player number to controller
-                    conn.send({ type: 'playerAssignment', playerNumber: playerNumber });
-                    
-                    // Send current game state to controller
-                    if (gameStarted) {
-                        conn.send({ type: 'gameStarted' });
-                    } else {
-                        conn.send({ type: 'gameReset' });
-                    }
-                    
-                    updateControllerDisplay();
-                    
-                    // Set up heartbeat monitoring
-                    let lastHeartbeat = Date.now();
-                    const heartbeatInterval = setInterval(() => {
-                        if (Date.now() - lastHeartbeat > 5000) {
-                            // No heartbeat for 5 seconds, consider disconnected
-                            console.log('Controller timeout:', controllerId);
-                            handleControllerDisconnect(controllerId);
-                        }
-                    }, 2000);
-                    heartbeatIntervals.set(controllerId, heartbeatInterval);
-                    
-                    conn.on('data', (data) => {
-                        // Handle heartbeat
-                        if (data.type === 'heartbeat') {
-                            lastHeartbeat = Date.now();
-                            // Send heartbeat response back to controller
-                            conn.send({ type: 'heartbeat' });
-                            return;
-                        }
-                        
-                        // Handle game start command from controller
-                        if (data.type === 'startGame' && data.gameData) {
-                            console.log('Controller requested game start:', data.gameData);
-                            if (gameMenu) {
-                                gameMenu.hide();
-                            }
-                            loadROM(data.gameData);
-                            return;
-                        }
-                        
-                        // Handle reset to menu command from controller
-                        if (data.type === 'resetToMenu') {
-                            console.log('Controller requested reset to menu');
-                            resetToGameMenu();
-                            return;
-                        }
-                        
-                        const { method, params } = data;
-                        if (EJS_emulator?.handler) {
-                            try {
-                                // Use the player number for this controller
-                                if (method === 'input.simulate' && params) {
-                                    params.player = playerNumbers.get(controllerId) || 0;
-                                }
-                                const result = EJS_emulator.handler.exec(method, params);
-                                console.log('Executed:', method, result);
-                            } catch (error) {
-                                console.error('Failed:', method, error);
-                            }
-                        }
-                    });
-                    
-                    conn.on('close', () => {
-                        console.log('Controller disconnected:', controllerId);
-                        handleControllerDisconnect(controllerId);
-                    });
-                    
-                    conn.on('error', (error) => {
-                        console.error('Controller error:', controllerId, error);
-                        handleControllerDisconnect(controllerId);
-                    });
-                });
-            });
+            
+            peer.on('connection', handleControllerConnection);
             
             peer.on('error', (error) => {
                 console.error('Peer error:', error);
+                // If the ID is taken, the peer server might be down or we need to reconnect
+                if (error.type === 'unavailable-id') {
+                    console.log('Screen ID unavailable, retrying in 5 seconds...');
+                    setTimeout(() => {
+                        peer.reconnect();
+                    }, 5000);
+                }
+            });
+            
+            peer.on('disconnected', () => {
+                console.log('Screen disconnected from PeerJS server, reconnecting...');
+                peer.reconnect();
             });
         }
         
-        function getNextAvailablePlayerNumber() {
-            // Find the lowest available player number (0-3)
-            const usedNumbers = Array.from(playerNumbers.values());
-            for (let i = 0; i < 4; i++) {
-                if (!usedNumbers.includes(i)) {
-                    return i;
+        function handleControllerConnection(conn) {
+            const controllerId = conn.peer;
+            
+            conn.on('open', () => {
+                // Check if this controller already has a connection (reconnecting)
+                const existingConn = controllerConnections.get(controllerId);
+                if (existingConn) {
+                    console.log('Controller reconnecting:', controllerId);
+                    // Clean up old connection
+                    try { existingConn.close(); } catch(e) {}
+                    const oldInterval = heartbeatIntervals.get(controllerId);
+                    if (oldInterval) clearInterval(oldInterval);
+                }
+                
+                // Cancel any pending reset since a controller connected
+                clearNoControllerResetTimer();
+                
+                controllerConnections.set(controllerId, conn);
+                
+                // Reuse existing player number if available, otherwise assign new one
+                let playerNumber = playerNumbers.get(controllerId);
+                if (playerNumber === undefined) {
+                    playerNumber = getNextAvailablePlayerNumber();
+                    playerNumbers.set(controllerId, playerNumber);
+                }
+                
+                console.log('Controller connected:', controllerId, 'as Player', playerNumber + 1);
+                
+                // Send player assignment
+                conn.send({ type: 'playerAssignment', playerNumber: playerNumber });
+                
+                // Send current state immediately
+                conn.send(getStateInfo());
+                
+                updateControllerDisplay();
+                
+                // Set up heartbeat monitoring (more tolerant - 10 second timeout)
+                let lastHeartbeat = Date.now();
+                const heartbeatInterval = setInterval(() => {
+                    if (!conn.open) {
+                        clearInterval(heartbeatInterval);
+                        return;
+                    }
+                    if (Date.now() - lastHeartbeat > 10000) {
+                        console.log('Controller timeout:', controllerId);
+                        handleControllerDisconnect(controllerId);
+                    }
+                }, 3000);
+                heartbeatIntervals.set(controllerId, heartbeatInterval);
+                
+                conn.on('data', (data) => handleControllerData(data, controllerId, conn, () => { lastHeartbeat = Date.now(); }));
+                conn.on('close', () => handleControllerDisconnect(controllerId));
+                conn.on('error', (error) => {
+                    console.error('Controller error:', controllerId, error);
+                    handleControllerDisconnect(controllerId);
+                });
+            });
+        }
+        
+        function handleControllerData(data, controllerId, conn, updateHeartbeat) {
+            // Handle heartbeat
+            if (data.type === 'heartbeat') {
+                updateHeartbeat();
+                conn.send({ type: 'heartbeat' });
+                return;
+            }
+            
+            // Handle state query
+            if (data.type === 'queryState') {
+                conn.send(getStateInfo());
+                return;
+            }
+            
+            // Handle game start command
+            if (data.type === 'startGame' && data.gameData) {
+                console.log('Controller requested game start:', data.gameData);
+                loadROM(data.gameData);
+                return;
+            }
+            
+            // Handle reset to menu
+            if (data.type === 'resetToMenu') {
+                console.log('Controller requested reset to menu');
+                resetToGameMenu();
+                return;
+            }
+            
+            // Handle emulator commands (only in game-ready state)
+            if (currentState === ScreenState.GAME_READY) {
+                const { method, params } = data;
+                if (EJS_emulator?.handler) {
+                    try {
+                        if (method === 'input.simulate' && params) {
+                            params.player = playerNumbers.get(controllerId) || 0;
+                        }
+                        EJS_emulator.handler.exec(method, params);
+                    } catch (error) {
+                        console.error('Failed:', method, error);
+                    }
                 }
             }
-            // If all slots are taken, return the next number
+        }
+        
+        function getNextAvailablePlayerNumber() {
+            const usedNumbers = Array.from(playerNumbers.values());
+            for (let i = 0; i < 4; i++) {
+                if (!usedNumbers.includes(i)) return i;
+            }
             return usedNumbers.length;
         }
         
         function handleControllerDisconnect(controllerId) {
-            // Clean up connection
             const conn = controllerConnections.get(controllerId);
-            if (conn) {
-                try {
-                    conn.close();
-                } catch (e) {}
-            }
             
-            // Clean up heartbeat interval
+            // Only proceed if the connection we're disconnecting is the current one
+            // (prevents race condition when reconnecting)
+            if (!conn) return;
+            
+            try { conn.close(); } catch (e) {}
+            
             const interval = heartbeatIntervals.get(controllerId);
             if (interval) {
                 clearInterval(interval);
                 heartbeatIntervals.delete(controllerId);
             }
             
-            // Remove player number
-            playerNumbers.delete(controllerId);
-            
-            // Remove from connections map
             controllerConnections.delete(controllerId);
-            console.log('Remaining controllers:', controllerConnections.size);
             
-            // Update display
+            // Keep player number for a grace period (10 seconds) to allow reconnection
+            // with the same player number
+            setTimeout(() => {
+                // Only delete if the controller hasn't reconnected
+                if (!controllerConnections.has(controllerId)) {
+                    playerNumbers.delete(controllerId);
+                    console.log('Player number released for:', controllerId);
+                    updateControllerDisplay();
+                }
+            }, 10000);
+            
+            console.log('Controller disconnected:', controllerId, '- Remaining:', controllerConnections.size);
             updateControllerDisplay();
+            
+            // If no controllers remain, start the reset timer
+            if (controllerConnections.size === 0) {
+                startNoControllerResetTimer();
+            }
         }
         
         function updateControllerDisplay() {
             const container = document.getElementById('controllers');
-            console.log('Updating display, controllers:', controllerConnections.size);
             container.innerHTML = '';
             
-            // Always show 4 dots for players 1-4
+            // Build a map of player number -> connected status
+            const connectedPlayers = new Map();
+            playerNumbers.forEach((playerNum, controllerId) => {
+                const isConnected = controllerConnections.has(controllerId);
+                connectedPlayers.set(playerNum, isConnected);
+            });
+            
             for (let i = 0; i < 4; i++) {
                 const dot = document.createElement('div');
                 dot.className = 'controller-dot';
                 
-                // Check if this player slot is occupied
-                const isConnected = Array.from(playerNumbers.values()).includes(i);
-                if (isConnected) {
-                    dot.classList.add('active', `player-${i}`);
+                if (connectedPlayers.has(i)) {
+                    if (connectedPlayers.get(i)) {
+                        // Actively connected
+                        dot.classList.add('active', `player-${i}`);
+                    } else {
+                        // Disconnected but player number reserved (grace period)
+                        dot.classList.add('reserved', `player-${i}`);
+                    }
                 }
                 
                 container.appendChild(dot);
             }
         }
 
-        // Initialize PeerJS when page loads
+        // Initialize PeerJS
         initializePeer();
+
+        // ============================================
+        // QR CODE
+        // ============================================
         
-        // Generate QR code for controller connection
-        function generateQRCode() {
-            if (qrCodeGenerated) return;
+        let qrCodeGenerated = false;
+        let cachedControllerUrl = null;
+        
+        function calculateQRSize() {
+            const minDimension = Math.min(window.innerWidth, window.innerHeight);
+            return Math.max(Math.floor(minDimension / 4), 120);
+        }
+        
+        async function getControllerUrl() {
+            if (cachedControllerUrl) return cachedControllerUrl;
+            
+            try {
+                const response = await fetch('/api/network-info');
+                const data = await response.json();
+                if (data.url) {
+                    cachedControllerUrl = `${data.url}/controller.html`;
+                    return cachedControllerUrl;
+                }
+            } catch (e) {
+                console.warn('Could not fetch network info:', e);
+            }
+            
+            const currentUrl = new URL(window.location.href);
+            currentUrl.pathname = currentUrl.pathname.replace(/[^/]*$/, 'controller.html');
+            cachedControllerUrl = currentUrl.toString();
+            return cachedControllerUrl;
+        }
+        
+        async function generateQRCode(forceRegenerate = false) {
+            if (qrCodeGenerated && !forceRegenerate) return;
             
             const qrDisplay = document.getElementById('qrCodeDisplay');
             const qrUrl = document.getElementById('qrUrl');
+            const controllerUrl = await getControllerUrl();
             
-            // Get current URL and replace filename with controller.html
-            const currentUrl = new URL(window.location.href);
-            currentUrl.pathname = currentUrl.pathname.replace(/[^/]*$/, 'controller.html');
-            const controllerUrl = currentUrl.toString();
-            
-            // Clear any existing content
             qrDisplay.innerHTML = '';
+            const qrSize = calculateQRSize();
+            qrDisplay.style.width = qrSize + 'px';
+            qrDisplay.style.height = qrSize + 'px';
             
-            // Generate QR code
+            const qrContainer = document.getElementById('qrContainer');
+            qrContainer.style.maxWidth = (qrSize + 40) + 'px';
+            
             new QRCode(qrDisplay, {
                 text: controllerUrl,
-                width: 120,
-                height: 120,
+                width: qrSize,
+                height: qrSize,
                 colorDark: '#000000',
                 colorLight: '#FFFFFF',
                 correctLevel: QRCode.CorrectLevel.H
             });
             
-            // Show the URL
             qrUrl.textContent = controllerUrl;
+            qrUrl.href = controllerUrl;
             qrCodeGenerated = true;
         }
         
-        // Show/hide QR code
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (qrCodeGenerated) generateQRCode(true);
+            }, 150);
+        });
+        
         function showQRCode() {
-            const container = document.getElementById('qrContainer');
-            container.classList.remove('hidden');
+            document.getElementById('qrContainer').classList.remove('hidden');
         }
         
         function hideQRCode() {
-            const container = document.getElementById('qrContainer');
-            container.classList.add('hidden');
+            document.getElementById('qrContainer').classList.add('hidden');
         }
         
-        // Generate QR code after a short delay
+        // Generate QR code on load
         setTimeout(() => {
             generateQRCode();
             showQRCode();
         }, 500);
+
+        // ============================================
+        // GAME LOADING
+        // ============================================
         
-        // Game menu instance
         let gameMenu = null;
         
         function loadROM(gameData) {
-            // Store the ROM info for loading
             pendingROM = {
                 source: gameData.romSource,
                 name: gameData.romName.split('.').slice(0, -1).join('.'),
@@ -439,79 +664,98 @@
                 biosSource: gameData.biosSource
             };
             
-            // Don't hide the menu yet - let loading show
-            // The menu will be hidden when the game actually starts
+            // Transition to pending state
+            setState(ScreenState.GAME_PENDING);
             
-            // Start the game
-            startGame();
+            // Start the emulator
+            initializeEmulator();
         }
         
-        // Function to reset to menu (can be called programmatically)
-        function resetToMenu() {
-            gameStarted = false;
-            
-            // Show the menu
-            if (gameMenu) {
-                gameMenu.show();
-            }
-            
-            // Notify all connected controllers
-            controllerConnections.forEach((conn, controllerId) => {
-                if (conn && conn.open) {
-                    conn.send({ type: 'gameReset' });
-                }
-            });
-        }
-        
-        // Function to reset the emulator and return to game menu
         function resetToGameMenu() {
-            gameStarted = false;
+            // Notify controllers we're going back to selection
+            setState(ScreenState.GAME_SELECTION);
             
-            // Notify all connected controllers first
-            controllerConnections.forEach((conn, controllerId) => {
-                if (conn && conn.open) {
-                    conn.send({ type: 'gameReset' });
-                }
+            // Send explicit reset message to ensure controllers get it
+            broadcastToControllers({ 
+                type: 'stateUpdate', 
+                state: 'game-selection',
+                gameName: null,
+                isPaused: false,
+                isResetting: true  // Flag to indicate screen is resetting
             });
             
-            // Since EmulatorJS uses const/class declarations that can't be redeclared,
-            // the most reliable way is to reload the page
+            // Wait longer to ensure message is delivered before reload
             setTimeout(() => {
                 window.location.reload();
-            }, 100);
+            }, 500);
         }
         
+        // Track if we've had user interaction on this page
+        let hasUserInteraction = false;
+        
+        function hideAudioIndicator() {
+            document.getElementById('audioMutedIndicator').classList.remove('visible');
+        }
+        
+        function showAudioIndicator() {
+            document.getElementById('audioMutedIndicator').classList.add('visible');
+        }
+        
+        // Listen for any user interaction to unlock audio
+        // This includes keyboard (for TV remotes), mouse, and touch
+        ['click', 'touchstart', 'keydown', 'mousedown'].forEach(event => {
+            document.addEventListener(event, function onInteraction() {
+                hasUserInteraction = true;
+                hideAudioIndicator();
+                
+                // Try to resume audio context if it exists (correct path for EmulatorJS)
+                const emulator = window.EJS_emulator;
+                const audioCtx = emulator?.Module?.AL?.currentCtx?.audioCtx;
+                if (audioCtx?.state === 'suspended') {
+                    audioCtx.resume().then(() => {
+                        console.log('Audio unlocked via user interaction');
+                        // Also unmute the emulator
+                        if (emulator && typeof emulator.setVolume === 'function') {
+                            emulator.setVolume(1);
+                        }
+                    });
+                }
+                
+                // Try to play if paused
+                if (window.EJS_emulator && typeof window.EJS_emulator.play === 'function') {
+                    try {
+                        window.EJS_emulator.play();
+                    } catch (e) {}
+                }
+            }, { passive: true });
+        });
         
         function initializeEmulator() {
-            // Set up EmulatorJS configuration
             window.EJS_player = '#game';
             window.EJS_pathtodata = 'EmulatorJS/data/';
-            window.EJS_startOnLoaded = true; // Let it auto-start
+            window.EJS_startOnLoaded = true;
             window.EJS_volume = 1;
             window.EJS_DEBUG_XX = true;
             window.EJS_EXPERIMENTAL_NETPLAY = true;
+
+            // Force auto-start without user interaction
+            window.EJS_defaultControls = false; // Disable default controls (we use controller.html)
+            window.EJS_backgroundBlur = false;
+            window.EJS_backgroundColor = '#1a1a1a';
             
-            // Set command handler config
-            window.EJS_commandConfig = {
-                onCommand: window.EJS_onCommand
-            };
-            
-            // Use pending ROM if available
             if (pendingROM) {
                 window.EJS_gameName = pendingROM.name;
                 window.EJS_gameUrl = pendingROM.source;
                 window.EJS_core = pendingROM.core;
-                
-                // Set BIOS URL if provided
                 if (pendingROM.biosSource) {
                     window.EJS_biosUrl = pendingROM.biosSource;
                 }
             } else {
                 console.error('No ROM selected');
+                setState(ScreenState.GAME_SELECTION);
                 return;
             }
             
-            // Set up UI buttons
             window.EJS_Buttons = {
                 playPause: true,
                 restart: true,
@@ -532,120 +776,159 @@
                 cacheManager: false,
                 exitEmulation: false,
                 netplay: true,
-                // custom buttons
                 resetToMenu: {
                     visible: true,
                     displayName: "Reset to Menu",
-                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
                     callback: resetToGameMenu,
                 }
             };
             
-            // Event callbacks
+            // Track if game has fully started to prevent repeated auto-start attempts
+            let gameFullyStarted = false;
+            let autoStartInterval = null;
+            let autoStartObserver = null;
+
+            function stopAutoStart() {
+                gameFullyStarted = true;
+                if (autoStartInterval) {
+                    clearInterval(autoStartInterval);
+                    autoStartInterval = null;
+                }
+                if (autoStartObserver) {
+                    autoStartObserver.disconnect();
+                    autoStartObserver = null;
+                }
+            }
+
             window.EJS_ready = function() {
                 console.log('EmulatorJS is ready!');
-                
-                // Poll for ejs_canvas_parent to appear in the DOM
-                const checkForCanvas = setInterval(() => {
-                    const canvasParent = document.querySelector('.ejs_canvas_parent');
-                    if (canvasParent) {
-                        console.log('Game canvas detected, hiding loading overlay');
-                        clearInterval(checkForCanvas);
-                        const overlay = document.getElementById('loadingOverlay');
-                        if (overlay) {
-                            overlay.style.display = 'none';
+
+                // Click the start button if it exists (only once)
+                function clickStartButton() {
+                    if (gameFullyStarted) return true;
+
+                    const emulator = window.EJS_emulator;
+                    if (!emulator) return false;
+
+                    // If game already started, stop trying
+                    if (emulator.started === true) {
+                        console.log('Auto-start: game already started');
+                        stopAutoStart();
+                        return true;
+                    }
+
+                    // Look for the EmulatorJS start button specifically
+                    const gameContainer = document.getElementById('game');
+                    if (gameContainer) {
+                        const startButton = gameContainer.querySelector('.ejs_start_button');
+                        if (startButton && startButton.offsetParent !== null) {
+                            console.log('Auto-start: clicking start button');
+                            startButton.click();
+                            return true;
                         }
                     }
-                }, 100);
-                
-                // Fallback timeout after 30 seconds
-                setTimeout(() => {
-                    clearInterval(checkForCanvas);
-                    const overlay = document.getElementById('loadingOverlay');
-                    if (overlay && overlay.style.display !== 'none') {
-                        overlay.style.display = 'none';
+
+                    return false;
+                }
+
+                // Try immediately
+                clickStartButton();
+
+                // Keep trying for a few seconds in case start button appears later
+                let attempts = 0;
+                autoStartInterval = setInterval(() => {
+                    attempts++;
+                    if (gameFullyStarted || attempts > 25 || clickStartButton()) {
+                        stopAutoStart();
                     }
-                }, 30000);
+                }, 200);
+
+                // Also observe DOM changes to catch dynamically added start button
+                autoStartObserver = new MutationObserver(() => {
+                    if (!gameFullyStarted) {
+                        clickStartButton();
+                    }
+                });
+                const gameEl = document.getElementById('game');
+                if (gameEl) {
+                    autoStartObserver.observe(gameEl, { childList: true, subtree: true });
+                }
             };
             
             window.EJS_onGameStart = function() {
                 console.log('Game started!');
-                gameStarted = true;
-                
-                // Hide the game menu (and its loading overlay)
-                if (gameMenu) {
-                    gameMenu.hide();
-                }
-                
-                // Hide QR code when game starts
-                hideQRCode();
-                
-                // Notify all connected controllers that game has started
-                controllerConnections.forEach((conn, controllerId) => {
-                    if (conn && conn.open) {
-                        conn.send({ type: 'gameStarted' });
-                    }
-                });
-            };
-            
-            // Hook into command events to detect pause
-            window.EJS_onCommand = function(eventData) {
-                // Check if it's an input.simulate command
-                if (eventData.method === 'input.simulate') {
-                    const { button, state, value } = eventData.params;
-                    
-                    // Button 19 is typically the pause button in EmulatorJS
-                    // Check if pause button is pressed (not released)
-                    if (button === 19 && (state === 'pressed' || value === 1)) {
-                        console.log('Pause button detected!');
-                        // Toggle pause state
-                        isPaused = !isPaused;
-                        if (isPaused) {
-                            console.log('Game paused via button!');
-                            showQRCode();
+
+                // Stop any auto-start attempts
+                stopAutoStart();
+
+                setState(ScreenState.GAME_READY);
+
+                const emulator = window.EJS_emulator;
+
+                // Check if audio is blocked - show non-blocking indicator
+                // Game continues to run, just muted until user interacts
+                setTimeout(() => {
+                    const audioCtx = emulator?.Module?.AL?.currentCtx?.audioCtx;
+
+                    if (audioCtx?.state === 'suspended') {
+                        if (hasUserInteraction) {
+                            // Try to resume since we've had interaction
+                            audioCtx.resume().then(() => {
+                                console.log('Audio context resumed');
+                            }).catch(() => {
+                                // Still blocked, show indicator
+                                console.log('Audio still blocked, showing indicator');
+                                showAudioIndicator();
+                            });
                         } else {
-                            console.log('Game resumed via button!');
-                            hideQRCode();
+                            // No interaction yet, show indicator
+                            console.log('Audio blocked (no user interaction), showing indicator');
+                            showAudioIndicator();
                         }
                     }
+                }, 500);
+            };
+            
+            window.EJS_onCommand = function(eventData) {
+                if (eventData.method === 'input.simulate') {
+                    const { button, state, value } = eventData.params;
+                    if (button === 19 && (state === 'pressed' || value === 1)) {
+                        isPaused = !isPaused;
+                        if (isPaused) {
+                            showQRCode();
+                        } else {
+                            hideQRCode();
+                        }
+                        broadcastToControllers(getStateInfo());
+                    }
                 }
                 
-                // Also listen for direct pause/play commands
                 if (eventData.method === 'control.pause') {
-                    console.log('Game paused via command!');
                     isPaused = true;
                     showQRCode();
+                    broadcastToControllers(getStateInfo());
                 } else if (eventData.method === 'control.play') {
-                    console.log('Game resumed via command!');
                     isPaused = false;
                     hideQRCode();
+                    broadcastToControllers(getStateInfo());
                 }
             };
             
-            // Load EmulatorJS script
             const script = document.createElement('script');
             script.src = 'EmulatorJS/data/loader.js';
             document.body.appendChild(script);
         }
+
+        // ============================================
+        // GAME MENU COMPONENT
+        // ============================================
         
-        function startGame() {
-            // Show loading overlay
-            const overlay = document.getElementById('loadingOverlay');
-            const loadingText = document.getElementById('loadingText');
-            loadingText.textContent = `Loading ${pendingROM ? pendingROM.name : 'emulator'}...`;
-            overlay.style.display = 'flex';
-            
-            // Initialize and start emulator
-            initializeEmulator();
-        }
-        
-        // Load the game menu web component
         async function loadGameMenuComponent() {
             try {
                 const response = await fetch('game-menu.html');
                 const html = await response.text();
                 
-                // Extract and execute the script
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
                 const script = doc.querySelector('script[type="module"]');
@@ -656,15 +939,11 @@
                     scriptElement.textContent = script.textContent;
                     document.head.appendChild(scriptElement);
                     
-                    // Wait for custom element to be defined
                     await customElements.whenDefined('game-menu');
                     
-                    const gameMenuElement = document.getElementById('gameMenu');
-                    if (gameMenuElement) {
-                        gameMenu = gameMenuElement;
-                        
-                        // Listen for game start event
-                        gameMenuElement.addEventListener('gamestart', (event) => {
+                    gameMenu = document.getElementById('gameMenu');
+                    if (gameMenu) {
+                        gameMenu.addEventListener('gamestart', (event) => {
                             loadROM(event.detail);
                         });
                     }

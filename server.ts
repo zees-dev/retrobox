@@ -2,9 +2,9 @@ import { serve, file } from "bun";
 import { join, extname } from "path";
 import { networkInterfaces } from "os";
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3333;
 const ROOT_DIR = import.meta.dir;
-const EMULATORJS_DIR = "/Users/z/Desktop/z-sandbox/EmulatorJS";
+const EMULATORJS_DIR = join(ROOT_DIR, "EmulatorJS");
 
 // MIME types for common file extensions
 const MIME_TYPES: Record<string, string> = {
@@ -54,25 +54,39 @@ const MIME_TYPES: Record<string, string> = {
   ".mem": "application/octet-stream",
 };
 
-// CORS headers - maximally permissive
-const corsHeaders: Record<string, string> = {
+// Base CORS headers - maximally permissive
+const baseCorsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Expose-Headers": "*",
   "Access-Control-Max-Age": "86400",
-  // Required for SharedArrayBuffer (threads support in EmulatorJS)
+};
+
+// Cross-origin isolation headers for SharedArrayBuffer (only work on localhost or HTTPS)
+const crossOriginIsolationHeaders: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "cross-origin",
 };
+
+// Get appropriate headers based on whether request is from localhost
+function getCorsHeaders(req: Request): Record<string, string> {
+  const host = req.headers.get("host") || "";
+  const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  
+  if (isLocalhost) {
+    return { ...baseCorsHeaders, ...crossOriginIsolationHeaders };
+  }
+  return baseCorsHeaders;
+}
 
 function getMimeType(filePath: string): string {
   const ext = extname(filePath).toLowerCase();
   return MIME_TYPES[ext] || "application/octet-stream";
 }
 
-async function serveFile(filePath: string): Promise<Response | null> {
+async function serveFile(filePath: string, req: Request): Promise<Response | null> {
   try {
     const f = file(filePath);
     if (await f.exists()) {
@@ -80,7 +94,7 @@ async function serveFile(filePath: string): Promise<Response | null> {
       return new Response(f, {
         headers: {
           "Content-Type": mimeType,
-          ...corsHeaders,
+          ...getCorsHeaders(req),
         },
       });
     }
@@ -119,7 +133,21 @@ const server = serve({
     if (req.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: corsHeaders,
+        headers: getCorsHeaders(req),
+      });
+    }
+
+    // API endpoint for network info (LAN IP)
+    if (url.pathname === "/api/network-info") {
+      return new Response(JSON.stringify({
+        ip: LOCAL_IP,
+        port: PORT,
+        url: LOCAL_IP ? `http://${LOCAL_IP}:${PORT}` : null
+      }), {
+        headers: {
+          "Content-Type": "application/json",
+          ...getCorsHeaders(req),
+        },
       });
     }
 
@@ -133,27 +161,27 @@ const server = serve({
       pathname = "/screen.html";
     }
 
-    // Try EmulatorJS directory first (symlinked)
+    // Try EmulatorJS directory first (worktree)
     if (pathname.startsWith("/EmulatorJS/")) {
       const relativePath = pathname.slice("/EmulatorJS/".length);
       const filePath = join(EMULATORJS_DIR, relativePath);
-      const response = await serveFile(filePath);
+      const response = await serveFile(filePath, req);
       if (response) return response;
     }
 
     // Try to serve from root directory
     let filePath = join(ROOT_DIR, pathname);
-    let response = await serveFile(filePath);
+    let response = await serveFile(filePath, req);
     if (response) return response;
 
     // Try with .html extension (clean URLs: /screen -> /screen.html)
     if (!pathname.includes(".")) {
-      response = await serveFile(filePath + ".html");
+      response = await serveFile(filePath + ".html", req);
       if (response) return response;
     }
 
     // Try index.html in subdirectory
-    response = await serveFile(join(filePath, "index.html"));
+    response = await serveFile(join(filePath, "index.html"), req);
     if (response) return response;
 
     // 404 Not Found
@@ -161,7 +189,7 @@ const server = serve({
       status: 404,
       headers: {
         "Content-Type": "text/plain",
-        ...corsHeaders,
+        ...getCorsHeaders(req),
       },
     });
   },
@@ -170,10 +198,8 @@ const server = serve({
 console.log(`
 🎮 RetroBox Server
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   Local:      http://localhost:${PORT}
   ${LOCAL_IP ? `Network:    http://${LOCAL_IP}:${PORT}\n` : ""}
   Serving:    ${ROOT_DIR}
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);

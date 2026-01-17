@@ -19,6 +19,7 @@
                 this._showManualConfig = true;
                 this._peerConnection = null;
                 this._currentRomSource = null;
+                this._currentParentRomSource = null;
                 this._currentBiosSource = null;
                 
                 // Create template
@@ -110,8 +111,9 @@
                             border-radius: 8px;
                             border: 1px solid rgba(255, 255, 255, 0.1);
                             transition: opacity 0.3s ease, visibility 0.3s ease;
-                            width: 90%;
-                            max-width: 400px;
+                            /* Responsive width: at least 25vw, minimum 400px, max 90% of viewport */
+                            width: max(400px, 25vw);
+                            max-width: 90vw;
                             box-sizing: border-box;
                             pointer-events: auto;
                         }
@@ -123,15 +125,17 @@
                         }
                         
                         .game-controls.preset-only {
-                            max-width: 300px;
+                            /* Responsive width: at least 25vw, minimum 300px */
+                            width: max(300px, 25vw);
                             padding: 20px;
                         }
                         
                         /* Portrait mode adjustments */
                         @media (orientation: portrait) {
                             .game-controls {
-                                width: 85%;
-                                max-width: 350px;
+                                /* In portrait, use 25vw minimum but allow up to 85% */
+                                width: max(350px, 25vw);
+                                max-width: 85vw;
                             }
                         }
                         
@@ -140,29 +144,33 @@
                             .game-controls {
                                 max-height: 85vh;
                                 overflow-y: auto;
-                                padding: 10px;
-                                width: 80%;
-                                max-width: 500px;
+                                padding: 15px;
+                                /* In compact landscape, scale with screen */
+                                width: max(350px, 30vw);
+                                max-width: 70vw;
                             }
-                            
+
                             .game-controls.preset-only {
                                 padding: 15px;
+                                width: max(280px, 25vw);
                             }
-                            
+
                             input, select {
-                                height: 35px !important;
-                                font-size: 12px !important;
-                            }
-                            
-                            .upload-btn, .start-button {
-                                width: 35px !important;
-                                height: 35px !important;
-                                font-size: 18px !important;
-                            }
-                            
-                            .start-button.full-width {
                                 height: 40px !important;
                                 font-size: 14px !important;
+                            }
+
+                            .upload-btn {
+                                width: 40px !important;
+                                height: 40px !important;
+                                font-size: 18px !important;
+                            }
+
+                            .start-button.full-width {
+                                width: 100% !important;
+                                height: 50px !important;
+                                font-size: 16px !important;
+                                margin-top: 10px !important;
                             }
                         }
                         
@@ -374,18 +382,115 @@
             init() {
                 // Game presets configuration
                 this.gamePresets = {
-                    'mslug3': {
-                        name: 'Metal Slug 3',
-                        rom: 'presets/mslug3/mslug3.zip',
-                        bios: 'bios/uni-bios.rom',
+                    'dino': {
+                        name: 'Cadillacs and Dinosaurs',
+                        rom: 'presets/arcade/dino.zip',
+                        bios: null,
+                        core: 'arcade'
+                    },
+                    'cocoma-knight': {
+                        name: 'Cocoma Knight in Bizyland',
+                        rom: 'presets/snes/cocoma-knight-in-bizyland.zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'contra-hard-corps': {
+                        name: 'Contra: Hard Corps',
+                        rom: 'presets/sega-mega-drive/Contra - Hard Corps (USA, Korea).zip',
+                        bios: null,
+                        core: 'segaMD'
+                    },
+                    'firepower2000': {
+                        name: 'Firepower 2000',
+                        rom: 'presets/snes/Firepower 2000 (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'circus-mystery': {
+                        name: 'Great Circus Mystery (Mickey & Minnie)',
+                        rom: 'presets/snes/Great Circus Mystery Starring Mickey & Minnie, The (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'kof99ae': {
+                        name: 'King of Fighters 99 AE',
+                        rom: 'presets/games/kof99ae/kof99ae.zip',
+                        parentRom: 'presets/games/kof99ae/kof99.zip',
+                        bios: 'presets/games/kof99ae/neogeo.zip',
                         core: 'arcade'
                     },
                     'kof99': {
-                        name: 'The King of Fighters 99',
-                        rom: 'presets/kof99/kof99.zip',
-                        bios: 'presets/kof99/arcade.zip',
+                        name: 'King of Fighters 99',
+                        rom: 'presets/games/kof99/kof99.zip',
+                        bios: 'presets/games/kof99/arcade.zip',
                         core: 'arcade'
-                    }
+                    },
+                    'kirby-super-star': {
+                        name: 'Kirby Super Star',
+                        rom: 'presets/snes/Kirby Super Star (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'mslug3': {
+                        name: 'Metal Slug 3',
+                        rom: 'presets/arcade/mslug3.zip',
+                        bios: 'bios/neogeo.zip',
+                        core: 'arcade'
+                    },
+                    'new-super-mario-land': {
+                        name: 'New Super Mario Land',
+                        rom: 'presets/snes/New Super Mario Land.zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'slam-masters': {
+                        name: 'Saturday Night Slam Masters',
+                        rom: 'presets/snes/Saturday Night Slam Masters (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'secret-of-mana': {
+                        name: 'Secret of Mana',
+                        rom: 'presets/snes/Secret of Mana (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'simpsons': {
+                        name: 'Simpsons, The',
+                        rom: 'presets/arcade/simpsons.zip',
+                        bios: null,
+                        core: 'arcade'
+                    },
+                    'snowbros': {
+                        name: 'Snow Bros',
+                        rom: 'presets/arcade/snowbros.zip',
+                        bios: null,
+                        core: 'arcade'
+                    },
+                    'snowbro2': {
+                        name: 'Snow Bros 2',
+                        rom: 'presets/arcade/snowbro2.zip',
+                        bios: null,
+                        core: 'arcade'
+                    },
+                    'bomberman3': {
+                        name: 'Super Bomberman 3',
+                        rom: 'presets/snes/Super Bomberman 3 (Europe).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
+                    'tekken3': {
+                        name: 'Tekken 3',
+                        rom: 'presets/playstation-1/Tekken 3 Full Unlocked with 3 Round Default.zip',
+                        bios: null,
+                        core: 'psx'
+                    },
+                    'zombies': {
+                        name: 'Zombies Ate My Neighbors',
+                        rom: 'presets/snes/Zombies Ate My Neighbors (USA).zip',
+                        bios: null,
+                        core: 'snes'
+                    },
                 };
                 
                 // Core mapping
@@ -462,8 +567,9 @@
                     if (event.target.files.length > 0) {
                         const file = event.target.files[0];
                         this._currentRomSource = file;
+                        this._currentParentRomSource = null; // Clear parent ROM for file uploads
                         this.romUrlInput.value = file.name;
-                        
+
                         this.presetSelect.value = '';
                         this.consoleSelect.value = '';
                         this.startButton.disabled = true;
@@ -495,6 +601,7 @@
                     const url = event.target.value.trim();
                     if (url) {
                         this._currentRomSource = url;
+                        this._currentParentRomSource = null; // Clear parent ROM for manual URLs
                         this.presetSelect.value = '';
                         
                         const filename = url.split('/').pop().split('?')[0];
@@ -535,6 +642,7 @@
                         this.applyPreset(presetKey);
                     } else {
                         this._currentRomSource = null;
+                        this._currentParentRomSource = null;
                         this._currentBiosSource = null;
                         this.romUrlInput.value = '';
                         this.biosUrlInput.value = '';
@@ -552,6 +660,7 @@
                         
                         const gameData = {
                             romSource: this._currentRomSource,
+                            parentRomSource: this._currentParentRomSource,
                             biosSource: this._currentBiosSource,
                             core: this.consoleSelect.value,
                             romName: romName
@@ -625,15 +734,16 @@
                 if (!presetKey || !this.gamePresets[presetKey]) {
                     return;
                 }
-                
+
                 const preset = this.gamePresets[presetKey];
-                
+
                 this.romUrlInput.value = preset.rom;
                 this.biosUrlInput.value = preset.bios || '';
-                
+
                 this._currentRomSource = preset.rom;
+                this._currentParentRomSource = preset.parentRom || null;
                 this._currentBiosSource = preset.bios;
-                
+
                 this.consoleSelect.value = preset.core;
                 this.updateStartButtonState();
             }
@@ -670,6 +780,13 @@
             hideLoading() {
                 if (this.loadingOverlay) {
                     this.loadingOverlay.classList.remove('active');
+                }
+            }
+            
+            setLoadingText(text) {
+                const loadingText = this.shadowRoot.querySelector('.loading-text');
+                if (loadingText) {
+                    loadingText.textContent = text;
                 }
             }
 
