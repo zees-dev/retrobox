@@ -6,10 +6,9 @@ const PORT = process.env.PORT || 3333;
 const ROOT_DIR = import.meta.dir;
 const EMULATORJS_DIR = join(ROOT_DIR, "EmulatorJS");
 
-// MIME types for common file extensions
+// Essential MIME types only
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
-  ".htm": "text/html; charset=utf-8",
   ".css": "text/css",
   ".js": "application/javascript",
   ".mjs": "application/javascript",
@@ -18,188 +17,113 @@ const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
   ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".webp": "image/webp",
-  ".mp3": "audio/mpeg",
-  ".ogg": "audio/ogg",
-  ".wav": "audio/wav",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".woff": "font/woff",
   ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
-  ".eot": "application/vnd.ms-fontobject",
   ".zip": "application/zip",
-  ".rom": "application/octet-stream",
-  ".bin": "application/octet-stream",
-  ".nes": "application/octet-stream",
-  ".smc": "application/octet-stream",
-  ".sfc": "application/octet-stream",
-  ".gba": "application/octet-stream",
-  ".gb": "application/octet-stream",
-  ".gbc": "application/octet-stream",
-  ".n64": "application/octet-stream",
-  ".z64": "application/octet-stream",
-  ".nds": "application/octet-stream",
-  ".iso": "application/octet-stream",
-  ".cue": "text/plain",
-  ".ccd": "text/plain",
-  ".chd": "application/octet-stream",
   ".7z": "application/x-7z-compressed",
-  ".rar": "application/vnd.rar",
   ".data": "application/octet-stream",
   ".mem": "application/octet-stream",
 };
 
-// Base CORS headers - maximally permissive
-const baseCorsHeaders: Record<string, string> = {
+// CORS headers
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "*",
-  "Access-Control-Expose-Headers": "*",
-  "Access-Control-Max-Age": "86400",
 };
 
-// Cross-origin isolation headers for SharedArrayBuffer (only work on localhost or HTTPS)
-const crossOriginIsolationHeaders: Record<string, string> = {
+// Cross-origin isolation (localhost only)
+const coiHeaders: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "cross-origin",
 };
 
-// Get appropriate headers based on whether request is from localhost
-function getCorsHeaders(req: Request): Record<string, string> {
+function getHeaders(req: Request): Record<string, string> {
   const host = req.headers.get("host") || "";
-  const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-  
-  if (isLocalhost) {
-    return { ...baseCorsHeaders, ...crossOriginIsolationHeaders };
-  }
-  return baseCorsHeaders;
+  const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  return isLocal ? { ...corsHeaders, ...coiHeaders } : corsHeaders;
 }
 
-function getMimeType(filePath: string): string {
-  const ext = extname(filePath).toLowerCase();
-  return MIME_TYPES[ext] || "application/octet-stream";
+function getMimeType(path: string): string {
+  return MIME_TYPES[extname(path).toLowerCase()] || "application/octet-stream";
 }
 
-async function serveFile(filePath: string, req: Request): Promise<Response | null> {
+async function serveFile(path: string, req: Request): Promise<Response | null> {
   try {
-    const f = file(filePath);
+    const f = file(path);
     if (await f.exists()) {
-      const mimeType = getMimeType(filePath);
-      return new Response(f, {
-        headers: {
-          "Content-Type": mimeType,
-          ...getCorsHeaders(req),
-        },
-      });
+      return new Response(f, { headers: { "Content-Type": getMimeType(path), ...getHeaders(req) } });
     }
-  } catch (e) {
-    // File doesn't exist or error reading
-  }
+  } catch {}
   return null;
 }
 
-// Get local IP address
-const getLocalIP: () => string | null = () => {
+// Get local IP
+const getLocalIP = (): string | null => {
   const nets = networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name] || []) {
-      if (net.family === "IPv4" && !net.internal) {
-        return net.address;
-      }
+      if (net.family === "IPv4" && !net.internal) return net.address;
     }
   }
   return null;
 };
 const LOCAL_IP = getLocalIP();
 
-const server = serve({
+serve({
   port: PORT,
-  hostname: "0.0.0.0", // Bind to all interfaces for LAN access
-
-  // Development mode for HMR and detailed errors
+  hostname: "0.0.0.0",
   development: true,
 
   async fetch(req) {
     const url = new URL(req.url);
     let pathname = decodeURIComponent(url.pathname);
 
-    // Handle CORS preflight
+    // CORS preflight
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: getCorsHeaders(req),
-      });
+      return new Response(null, { status: 204, headers: getHeaders(req) });
     }
 
-    // API endpoint for network info (LAN IP)
-    if (url.pathname === "/api/network-info") {
+    // Network info API
+    if (pathname === "/api/network-info") {
       return new Response(JSON.stringify({
         ip: LOCAL_IP,
         port: PORT,
         url: LOCAL_IP ? `http://${LOCAL_IP}:${PORT}` : null
-      }), {
-        headers: {
-          "Content-Type": "application/json",
-          ...getCorsHeaders(req),
-        },
-      });
+      }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
     }
 
-    // Normalize path
-    if (pathname !== "/" && pathname.endsWith("/")) {
-      pathname = pathname.slice(0, -1);
-    }
+    // Normalize
+    if (pathname !== "/" && pathname.endsWith("/")) pathname = pathname.slice(0, -1);
+    if (pathname === "/") pathname = "/screen.html";
 
-    // Root -> screen.html
-    if (pathname === "/") {
-      pathname = "/screen.html";
-    }
-
-    // Try EmulatorJS directory first (worktree)
+    // EmulatorJS files
     if (pathname.startsWith("/EmulatorJS/")) {
-      const relativePath = pathname.slice("/EmulatorJS/".length);
-      const filePath = join(EMULATORJS_DIR, relativePath);
-      const response = await serveFile(filePath, req);
-      if (response) return response;
+      const res = await serveFile(join(EMULATORJS_DIR, pathname.slice(12)), req);
+      if (res) return res;
     }
 
-    // Try to serve from root directory
-    let filePath = join(ROOT_DIR, pathname);
-    let response = await serveFile(filePath, req);
-    if (response) return response;
+    // Static files
+    let res = await serveFile(join(ROOT_DIR, pathname), req);
+    if (res) return res;
 
-    // Try with .html extension (clean URLs: /screen -> /screen.html)
+    // Clean URLs
     if (!pathname.includes(".")) {
-      response = await serveFile(filePath + ".html", req);
-      if (response) return response;
+      res = await serveFile(join(ROOT_DIR, pathname + ".html"), req);
+      if (res) return res;
     }
 
-    // Try index.html in subdirectory
-    response = await serveFile(join(filePath, "index.html"), req);
-    if (response) return response;
+    // Index fallback
+    res = await serveFile(join(ROOT_DIR, pathname, "index.html"), req);
+    if (res) return res;
 
-    // 404 Not Found
-    return new Response("Not Found", {
-      status: 404,
-      headers: {
-        "Content-Type": "text/plain",
-        ...getCorsHeaders(req),
-      },
-    });
+    return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain", ...getHeaders(req) } });
   },
 });
 
 console.log(`
-🎮 RetroBox Server
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Local:      http://localhost:${PORT}
-  ${LOCAL_IP ? `Network:    http://${LOCAL_IP}:${PORT}\n` : ""}
-  Serving:    ${ROOT_DIR}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RetroBox Server
+  Local:   http://localhost:${PORT}
+  ${LOCAL_IP ? `Network: http://${LOCAL_IP}:${PORT}\n` : ""}  Root:    ${ROOT_DIR}
 `);
