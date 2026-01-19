@@ -17,7 +17,6 @@
             };
         }
     </script>
-    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #1a1a1a; font-family: Arial, sans-serif; }
@@ -30,14 +29,14 @@
         .loading-spinner { margin: 20px auto; width: 50px; height: 50px; border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .controllers { position: fixed; top: 15px; right: 15px; z-index: 1000; display: flex; gap: 8px; }
-        .controller-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.3s; }
-        .controller-dot.active { width: 10px; height: 10px; border: none; animation: pulse 2s ease-in-out infinite; }
-        .controller-dot.active.player-0 { background: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
-        .controller-dot.active.player-1 { background: #2196F3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.5); }
-        .controller-dot.active.player-2 { background: #9C27B0; box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
-        .controller-dot.active.player-3 { background: #FFC107; box-shadow: 0 0 10px rgba(255, 193, 7, 0.5); }
-        .controller-dot.reserved { width: 8px; height: 8px; opacity: 0.4; animation: none; }
+        .controllers { position: fixed; top: max(10px, 1.5vh); right: max(10px, 1.5vw); z-index: 1000; display: flex; gap: max(4px, 0.8vmin); }
+        .controller-dot { width: max(6px, 1vmin); height: max(6px, 1vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.3s; }
+        .controller-dot.active { width: max(10px, 1.5vmin); height: max(10px, 1.5vmin); border: none; animation: pulse 2s ease-in-out infinite; }
+        .controller-dot.active.player-0 { background: #4CAF50; box-shadow: 0 0 max(6px, 1vmin) rgba(76, 175, 80, 0.5); }
+        .controller-dot.active.player-1 { background: #2196F3; box-shadow: 0 0 max(6px, 1vmin) rgba(33, 150, 243, 0.5); }
+        .controller-dot.active.player-2 { background: #9C27B0; box-shadow: 0 0 max(6px, 1vmin) rgba(156, 39, 176, 0.5); }
+        .controller-dot.active.player-3 { background: #FFC107; box-shadow: 0 0 max(6px, 1vmin) rgba(255, 193, 7, 0.5); }
+        .controller-dot.reserved { width: max(8px, 1.2vmin); height: max(8px, 1.2vmin); opacity: 0.4; animation: none; }
         .controller-dot.reserved.player-0 { background: #4CAF50; }
         .controller-dot.reserved.player-1 { background: #2196F3; }
         .controller-dot.reserved.player-2 { background: #9C27B0; }
@@ -49,8 +48,14 @@
         .qr-code-display { background: white; padding: 10px; border-radius: 4px; display: inline-block; margin: 5px 0; }
         .qr-code-display img, .qr-code-display canvas { display: block; width: 100% !important; height: 100% !important; }
         .qr-text { color: rgba(255, 255, 255, 0.8); font-size: max(12px, min(2.5vw, 2.5vh)); margin-bottom: 8px; font-weight: 500; }
-        .qr-url { color: #4a9eff; font-size: max(11px, min(2vw, 2vh)); font-family: monospace; margin-top: 8px; word-break: break-all; text-decoration: none; transition: color 0.2s; display: block; max-width: 100%; }
+        .qr-url { color: #4a9eff; font-family: monospace; margin-top: 8px; word-break: break-all; text-decoration: none; transition: color 0.2s; display: block; text-align: center; line-height: 1.3; }
         .qr-url:hover { color: #7bc0ff; text-decoration: underline; }
+
+        .status { position: fixed; bottom: max(8px, 1.5vh); right: max(8px, 1.5vw); padding: max(4px, 0.8vmin) max(8px, 1.5vmin); border-radius: max(3px, 0.5vmin); font-size: max(10px, min(2vw, 2vh, 14px)); z-index: 1001; transition: opacity 0.3s, visibility 0.3s; opacity: 0.7; }
+        .status.hidden { opacity: 0; visibility: hidden; }
+        .status.connecting { background: #FF9800; color: #000; }
+        .status.connected { background: #4CAF50; color: #fff; }
+        .status.error { background: #f44336; color: #fff; }
 
         #audioMutedIndicator { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 12px 24px; border-radius: 8px; font-size: 16px; z-index: 3000; cursor: pointer; display: none; align-items: center; gap: 10px; border: 1px solid rgba(255, 255, 255, 0.2); }
         #audioMutedIndicator.visible { display: flex; }
@@ -59,6 +64,18 @@
 
         #pauseOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 998; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         #pauseOverlay.visible { opacity: 1; }
+
+        #playerStatus { position: fixed; top: 20vh; left: 50%; transform: translateX(-50%); display: flex; gap: max(8px, 1.5vmin); align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); padding: max(8px, 1vmin) max(16px, 2vmin); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); z-index: 1001; transition: opacity 0.3s, visibility 0.3s; }
+        #playerStatus.hidden { opacity: 0; visibility: hidden; }
+        .player-indicator { display: flex; align-items: center; gap: max(4px, 0.6vmin); color: rgba(255, 255, 255, 0.6); font-size: max(11px, 1.4vmin); }
+        .player-indicator .dot { width: max(8px, 1.2vmin); height: max(8px, 1.2vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.2); }
+        .player-indicator.connected .dot { animation: pulse 2s ease-in-out infinite; border: none; }
+        .player-indicator.connected { color: rgba(255, 255, 255, 0.9); }
+        .player-indicator.reserved .dot { opacity: 0.5; }
+        .player-indicator .dot.player-0 { background: #4CAF50; box-shadow: 0 0 max(6px, 1vmin) rgba(76, 175, 80, 0.4); }
+        .player-indicator .dot.player-1 { background: #2196F3; box-shadow: 0 0 max(6px, 1vmin) rgba(33, 150, 243, 0.4); }
+        .player-indicator .dot.player-2 { background: #9C27B0; box-shadow: 0 0 max(6px, 1vmin) rgba(156, 39, 176, 0.4); }
+        .player-indicator .dot.player-3 { background: #FFC107; box-shadow: 0 0 max(6px, 1vmin) rgba(255, 193, 7, 0.4); }
     </style>
 </head>
 <body>
@@ -74,7 +91,9 @@
         <div><div class="text">Audio muted</div><div class="hint">Press any key or tap to enable</div></div>
     </div>
     <div class="controllers" id="controllers"></div>
+    <div class="status connecting" id="status">Connecting...</div>
     <div id="pauseOverlay"></div>
+    <div id="playerStatus" class="hidden"></div>
     <game-menu id="gameMenu" mode="screen"></game-menu>
 
     <script type="text/javascript">
@@ -82,7 +101,6 @@
         // CONSTANTS
         // ============================================
         const HEARTBEAT_INTERVAL = 3000;
-        const HEARTBEAT_TIMEOUT = 8000;
         const PLAYER_RESERVATION_TIME = 10000;
 
         // ============================================
@@ -94,11 +112,11 @@
         let isPaused = false;
         let gameMenu = null;
 
-        // PeerJS
-        let peer;
-        let controllerConnections = new Map();
-        let heartbeatIntervals = new Map();
-        let playerNumbers = new Map();
+        // WebSocket
+        let ws = null;
+        let screenId = null;
+        let connectedControllers = new Map(); // controllerId -> { playerNum, connected }
+        let heartbeatInterval = null;
 
         // ============================================
         // STATE MANAGEMENT
@@ -116,7 +134,9 @@
         }
 
         function broadcastToControllers(msg) {
-            controllerConnections.forEach(conn => { if (conn?.open) conn.send(msg); });
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(msg));
+            }
         }
 
         function updateScreenUI() {
@@ -125,25 +145,35 @@
                     gameMenu?.show();
                     hidePauseOverlay();
                     showQRCode();
+                    showPlayerStatus();
+                    showStatus();
                     break;
                 case State.LOADING:
                     gameMenu?.setLoadingText(`Loading ${pendingROM?.name || 'game'}...`);
                     gameMenu?.showLoading();
                     hidePauseOverlay();
                     hideQRCode();
+                    hidePlayerStatus();
+                    hideStatus();
                     break;
                 case State.PLAYING:
                     gameMenu?.hide();
+                    hidePlayerStatus();
+                    hideStatus();
                     if (isPaused) { showPauseOverlay(); showQRCode(); }
                     else { hidePauseOverlay(); hideQRCode(); }
                     break;
             }
         }
 
+        function showPlayerStatus() { document.getElementById('playerStatus').classList.remove('hidden'); }
+        function hidePlayerStatus() { document.getElementById('playerStatus').classList.add('hidden'); }
+        function showStatus() { document.getElementById('status').classList.remove('hidden'); }
+        function hideStatus() { document.getElementById('status').classList.add('hidden'); }
+
         // ============================================
         // PAUSE
         // ============================================
-        // Update UI only (used when EJS already handled the pause/play)
         function syncPauseUI(paused) {
             if (currentState !== State.PLAYING) return;
             isPaused = paused;
@@ -152,7 +182,6 @@
             broadcastToControllers(getStateInfo());
         }
 
-        // Programmatic pause (calls emulator + updates UI)
         function setPause(paused) {
             if (currentState !== State.PLAYING || isPaused === paused) return;
             if (paused) EJS_emulator?.pause?.();
@@ -164,132 +193,184 @@
         function hidePauseOverlay() { document.getElementById('pauseOverlay').classList.remove('visible'); }
 
         // ============================================
-        // PEERJS
+        // WEBSOCKET
         // ============================================
-        function initializePeer() {
-            peer = new Peer('emulator-screen', { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } });
-            peer.on('open', id => console.log('Screen ready:', id));
-            peer.on('connection', handleControllerConnection);
-            peer.on('error', err => {
-                console.error('Peer error:', err);
-                if (err.type === 'unavailable-id') setTimeout(() => peer.reconnect(), 5000);
-            });
-            peer.on('disconnected', () => { console.log('Reconnecting...'); peer.reconnect(); });
+        function updateStatus(status, text) {
+            const el = document.getElementById('status');
+            el.className = 'status ' + status;
+            el.textContent = text;
         }
 
-        function handleControllerConnection(conn) {
-            const id = conn.peer;
-            conn.on('open', () => {
-                // Clean up existing connection if reconnecting
-                const existing = controllerConnections.get(id);
-                if (existing) {
-                    try { existing.close(); } catch(e) {}
-                    clearInterval(heartbeatIntervals.get(id));
-                }
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${window.location.host}/ws`;
+        }
 
-                controllerConnections.set(id, conn);
-                let playerNum = playerNumbers.get(id);
-                if (playerNum === undefined) {
-                    playerNum = getNextPlayerNumber();
-                    playerNumbers.set(id, playerNum);
-                }
-                console.log('Controller connected:', id, 'Player', playerNum + 1);
+        function connectWebSocket() {
+            if (ws?.readyState === WebSocket.OPEN) return;
 
-                conn.send({ type: 'playerAssignment', playerNumber: playerNum });
-                conn.send(getStateInfo());
-                updateControllerDisplay();
+            updateStatus('connecting', 'Connecting...');
+            ws = new WebSocket(getWebSocketUrl());
 
-                // Unified heartbeat monitoring
-                let lastHeartbeat = Date.now();
-                const interval = setInterval(() => {
-                    if (!conn.open) { clearInterval(interval); return; }
-                    if (Date.now() - lastHeartbeat > HEARTBEAT_TIMEOUT) {
-                        console.log('Controller timeout:', id);
-                        handleControllerDisconnect(id);
+            ws.onopen = () => {
+                console.log('WebSocket connected, registering as screen:', screenId);
+                ws.send(JSON.stringify({ type: 'register-screen', screenId }));
+
+                // Start heartbeat
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = setInterval(() => {
+                    if (ws?.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'heartbeat' }));
                     }
                 }, HEARTBEAT_INTERVAL);
-                heartbeatIntervals.set(id, interval);
+            };
 
-                conn.on('data', data => handleControllerData(data, id, conn, () => lastHeartbeat = Date.now()));
-                conn.on('close', () => handleControllerDisconnect(id));
-                conn.on('error', () => handleControllerDisconnect(id));
-            });
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                updateStatus('connecting', 'Reconnecting...');
+                clearInterval(heartbeatInterval);
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            ws.onerror = (err) => {
+                console.error('WebSocket error:', err);
+                updateStatus('error', 'Connection error');
+            };
         }
 
-        function handleControllerData(data, id, conn, updateHB) {
-            if (data.type === 'heartbeat') {
-                updateHB();
-                conn.send({ type: 'ack', playerNumber: playerNumbers.get(id) });
-                return;
-            }
-            if (data.type === 'startGame' && data.gameData) { loadROM(data.gameData); return; }
-            if (data.type === 'resetToMenu') { resetToGameMenu(); return; }
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'registered':
+                    console.log('Screen registered:', msg.screenId);
+                    updateStatus('connected', 'Ready: ' + screenId);
+                    break;
 
-            // Handle save/load state commands from controller (uses slot from controller)
-            if (data.type === 'saveState') { saveState(data.slot); return; }
-            if (data.type === 'loadState') { loadState(data.slot); return; }
-
-            // Handle input in playing state
-            if (currentState === State.PLAYING && EJS_emulator?.handler) {
-                try {
-                    if (data.method === 'input.simulate' && data.params) {
-                        data.params.player = playerNumbers.get(id) || 0;
-                    }
-                    EJS_emulator.handler.exec(data.method, data.params);
-                } catch (e) { console.error('Input error:', e); }
-            }
-        }
-
-        function getNextPlayerNumber() {
-            const used = Array.from(playerNumbers.values());
-            for (let i = 0; i < 4; i++) if (!used.includes(i)) return i;
-            return used.length;
-        }
-
-        function handleControllerDisconnect(id) {
-            const conn = controllerConnections.get(id);
-            if (!conn) return;
-            try { conn.close(); } catch(e) {}
-            clearInterval(heartbeatIntervals.get(id));
-            heartbeatIntervals.delete(id);
-            controllerConnections.delete(id);
-
-            // Reserve player number for reconnection
-            setTimeout(() => {
-                if (!controllerConnections.has(id)) {
-                    playerNumbers.delete(id);
-                    console.log('Player number released:', id);
+                case 'controller-connected':
+                    console.log('Controller connected:', msg.controllerId, 'Player', msg.playerNum + 1);
+                    connectedControllers.set(msg.controllerId, { playerNum: msg.playerNum, connected: true });
                     updateControllerDisplay();
-                }
-            }, PLAYER_RESERVATION_TIME);
+                    // Send current state to the new controller
+                    ws.send(JSON.stringify({ ...getStateInfo(), targetController: msg.controllerId }));
+                    break;
 
-            console.log('Controller disconnected:', id, '- Remaining:', controllerConnections.size);
-            updateControllerDisplay();
+                case 'controller-disconnected':
+                    console.log('Controller disconnected:', msg.controllerId, 'Player', msg.playerNum + 1);
+                    const ctrl = connectedControllers.get(msg.controllerId);
+                    if (ctrl) {
+                        ctrl.connected = false;
+                        // Reserve player number for reconnection
+                        setTimeout(() => {
+                            const c = connectedControllers.get(msg.controllerId);
+                            if (c && !c.connected) {
+                                connectedControllers.delete(msg.controllerId);
+                                updateControllerDisplay();
+                            }
+                        }, PLAYER_RESERVATION_TIME);
+                    }
+                    updateControllerDisplay();
 
-            // Auto-pause when no controllers
-            if (controllerConnections.size === 0 && currentState === State.PLAYING && !isPaused) {
-                console.log('No controllers, pausing...');
-                setPause(true);
+                    // Auto-pause when no controllers connected
+                    const activeControllers = Array.from(connectedControllers.values()).filter(c => c.connected);
+                    if (activeControllers.length === 0 && currentState === State.PLAYING && !isPaused) {
+                        console.log('No controllers, pausing...');
+                        setPause(true);
+                    }
+                    break;
+
+                case 'heartbeat-ack':
+                    // Server responded to heartbeat
+                    break;
+
+                case 'startGame':
+                    if (msg.gameData) loadROM(msg.gameData);
+                    break;
+
+                case 'resetToMenu':
+                    resetToGameMenu();
+                    break;
+
+                case 'saveState':
+                    saveState(msg.slot);
+                    break;
+
+                case 'loadState':
+                    loadState(msg.slot);
+                    break;
+
+                default:
+                    // Handle input from controller
+                    if (currentState === State.PLAYING && EJS_emulator?.handler && msg.method) {
+                        try {
+                            EJS_emulator.handler.exec(msg.method, msg.params);
+                        } catch (e) {
+                            console.error('Input error:', e);
+                        }
+                    }
             }
         }
 
         function updateControllerDisplay() {
             const container = document.getElementById('controllers');
+            const playerStatus = document.getElementById('playerStatus');
             container.innerHTML = '';
-            const connected = new Map();
-            playerNumbers.forEach((num, id) => connected.set(num, controllerConnections.has(id)));
+            playerStatus.innerHTML = '';
+
+            const playerMap = new Map();
+            for (const [id, ctrl] of connectedControllers) {
+                playerMap.set(ctrl.playerNum, ctrl.connected);
+            }
 
             for (let i = 0; i < 4; i++) {
+                // Top-right corner dots
                 const dot = document.createElement('div');
                 dot.className = 'controller-dot';
-                if (connected.has(i)) {
-                    dot.classList.add(connected.get(i) ? 'active' : 'reserved', `player-${i}`);
+                if (playerMap.has(i)) {
+                    dot.classList.add(playerMap.get(i) ? 'active' : 'reserved', `player-${i}`);
                 }
                 container.appendChild(dot);
+
+                // Centered player status indicators
+                const indicator = document.createElement('div');
+                indicator.className = 'player-indicator';
+                const isConnected = playerMap.has(i) && playerMap.get(i);
+                const isReserved = playerMap.has(i) && !playerMap.get(i);
+                if (isConnected) indicator.classList.add('connected');
+                if (isReserved) indicator.classList.add('reserved');
+                indicator.innerHTML = `<span class="dot ${isConnected || isReserved ? 'player-' + i : ''}"></span><span>P${i + 1}</span>`;
+                playerStatus.appendChild(indicator);
             }
         }
 
-        initializePeer();
+        // Initialize
+        async function init() {
+            // Get screen ID from URL param or hostname
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('host')) {
+                screenId = urlParams.get('host').replace(/\./g, '-');
+            } else {
+                try {
+                    const res = await fetch('/api/client-hostname');
+                    const data = await res.json();
+                    screenId = (data.hostname || data.ip || 'unknown').replace(/\./g, '-');
+                } catch (e) {
+                    console.warn('Could not fetch hostname, using random ID');
+                    screenId = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+                }
+            }
+            console.log('Screen ID:', screenId);
+
+            connectWebSocket();
+            await generateQRCode();
+            showQRCode();
+            updateControllerDisplay();
+            showPlayerStatus();
+        }
+        init();
 
         // ============================================
         // QR CODE
@@ -303,14 +384,18 @@
 
         async function getControllerUrl() {
             if (cachedControllerUrl) return cachedControllerUrl;
+            let baseUrl;
             try {
                 const res = await fetch('/api/network-info');
                 const data = await res.json();
-                if (data.url) { cachedControllerUrl = `${data.url}/controller.html`; return cachedControllerUrl; }
+                if (data.url) baseUrl = `${data.url}/controller.html`;
             } catch(e) { console.warn('Network info error:', e); }
-            const url = new URL(window.location.href);
-            url.pathname = url.pathname.replace(/[^/]*$/, 'controller.html');
-            cachedControllerUrl = url.toString();
+            if (!baseUrl) {
+                const url = new URL(window.location.href);
+                url.pathname = url.pathname.replace(/[^/]*$/, 'controller.html');
+                baseUrl = url.toString();
+            }
+            cachedControllerUrl = baseUrl + '?screen=' + screenId;
             return cachedControllerUrl;
         }
 
@@ -328,6 +413,11 @@
             new QRCode(qrDisplay, { text: url, width: size, height: size, colorDark: '#000', colorLight: '#FFF', correctLevel: QRCode.CorrectLevel.H });
             qrUrl.textContent = url;
             qrUrl.href = url;
+
+            const containerWidth = size + 20;
+            let fontSize = Math.max(12, Math.min(Math.floor(containerWidth / 12), 20));
+            qrUrl.style.fontSize = fontSize + 'px';
+
             qrCodeGenerated = true;
         }
 
@@ -339,8 +429,6 @@
 
         function showQRCode() { document.getElementById('qrContainer').classList.remove('hidden'); }
         function hideQRCode() { document.getElementById('qrContainer').classList.add('hidden'); }
-
-        setTimeout(() => { generateQRCode(); showQRCode(); }, 500);
 
         // ============================================
         // GAME LOADING
@@ -359,12 +447,36 @@
         function resetToGameMenu() {
             // Save state before leaving (slot 0 for auto-save)
             saveState(0);
+
+            // Cleanup emulator without page reload
+            try {
+                if (window.EJS_emulator) {
+                    // Stop emulator
+                    EJS_emulator.pause?.();
+                    // Cleanup audio context
+                    const ctx = EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
+                    if (ctx && ctx.state !== 'closed') {
+                        ctx.close().catch(() => {});
+                    }
+                    // Clear the emulator
+                    window.EJS_emulator = null;
+                }
+            } catch (e) {
+                console.warn('Emulator cleanup error:', e);
+            }
+
+            // Clear game container
+            document.getElementById('game').innerHTML = '';
+
+            // Reset state
+            pendingROM = null;
+            isPaused = false;
             setState(State.IDLE);
-            broadcastToControllers({ type: 'stateUpdate', state: 'game-selection', gameName: null, isPaused: false, isResetting: true });
-            setTimeout(() => window.location.reload(), 500);
+
+            // Broadcast to controllers (connections stay intact)
+            broadcastToControllers({ type: 'stateUpdate', state: 'game-selection', gameName: null, isPaused: false });
         }
 
-        // Save/load state functions (use underlying EmulatorJS APIs)
         async function saveState(slot) {
             if (!EJS_emulator?.gameManager || !EJS_emulator?.storage?.states) return;
             try {
@@ -433,7 +545,6 @@
                 resetToMenu: { visible: true, displayName: "Menu", icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>', callback: resetToGameMenu }
             };
 
-            // Simplified auto-start
             window.EJS_ready = function() {
                 console.log('EmulatorJS ready');
                 function autoStart() {
@@ -455,18 +566,14 @@
                         else showAudioIndicator();
                     }
                 }, 500);
-                // Auto-load saved state (slot 0)
                 setTimeout(() => loadState(0), 1500);
             };
 
-            // Handle EJS events - emulator already paused/played, just sync UI
             window.EJS_onCommand = function(evt) {
                 const m = evt.method;
-                // Button 19 = pause button press
                 if (m === 'input.simulate' && evt.params?.button === 19 && (evt.params.state === 'pressed' || evt.params.value === 1)) {
                     syncPauseUI(!isPaused);
                 }
-                // Toggle commands
                 if (m === 'control.toggle-pause' || m === 'control.togglePause' || m === 'togglePause') {
                     syncPauseUI(!isPaused);
                 } else if (m === 'control.pause') {
@@ -498,6 +605,7 @@
                     await customElements.whenDefined('game-menu');
                     gameMenu = document.getElementById('gameMenu');
                     gameMenu?.addEventListener('gamestart', e => loadROM(e.detail));
+                    gameMenu?.addEventListener('resetToMenu', () => resetToGameMenu());
                 }
             } catch(e) { console.error('Failed to load game menu:', e); }
         }

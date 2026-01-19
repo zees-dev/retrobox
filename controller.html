@@ -17,7 +17,6 @@
             };
         }
     </script>
-    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; font-family: Arial, sans-serif; position: fixed; top: 0; left: 0; }
@@ -72,10 +71,9 @@
 
     <script type="text/javascript">
         // ============================================
-        // CONSTANTS - Aligned with screen.html
+        // CONSTANTS
         // ============================================
         const HEARTBEAT_INTERVAL = 3000;
-        const HEARTBEAT_TIMEOUT = 8000;
 
         // EmulatorJS config
         EJS_player = '#game';
@@ -83,29 +81,27 @@
         EJS_controlsOnly = true;
         EJS_DEBUG_XX = true;
 
-        // Button config (defined once, reused)
-        // Hide built-in save/load buttons, use custom buttons that send commands to screen
+        // Button config
         const buttonConfig = {
             playPause: true, restart: true, mute: true, settings: true, fullscreen: true,
             saveState: false, loadState: false, quickSave: false, quickLoad: false,
             gamepad: true, cheat: true, volume: true,
             netplay: false, screenRecord: false, saveSavFiles: false, loadSavFiles: false,
             screenshot: false, cacheManager: false, exitEmulation: false,
-            // Custom buttons that send commands to screen (which holds canonical state)
             remoteSave: {
                 displayName: "Save State",
                 icon: '<svg viewBox="0 0 448 512"><path fill="currentColor" d="M433.941 129.941l-83.882-83.882A48 48 0 0 0 316.118 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h352c26.51 0 48-21.49 48-48V163.882a48 48 0 0 0-14.059-33.941zM224 416c-35.346 0-64-28.654-64-64 0-35.346 28.654-64 64-64s64 28.654 64 64c0 35.346-28.654 64-64 64zm96-304.52V212c0 6.627-5.373 12-12 12H76c-6.627 0-12-5.373-12-12V108c0-6.627 5.373-12 12-12h228.52c3.183 0 6.235 1.264 8.485 3.515l3.48 3.48A11.996 11.996 0 0 1 320 111.48z"/></svg>',
-                callback: () => { if (displayConn?.open) displayConn.send({ type: 'saveState', slot: 1 }); }
+                callback: () => sendToScreen({ type: 'saveState', slot: 1 })
             },
             remoteLoad: {
                 displayName: "Load State",
                 icon: '<svg viewBox="0 0 576 512"><path fill="currentColor" d="M572.694 292.093L500.27 416.248A63.997 63.997 0 0 1 444.989 448H45.025c-18.523 0-30.064-20.093-20.731-36.093l72.424-124.155A64 64 0 0 1 152 256h399.964c18.523 0 30.064 20.093 20.73 36.093zM152 224h328v-48c0-26.51-21.49-48-48-48H272l-64-64H48C21.49 64 0 85.49 0 112v278.046l69.077-118.418C86.214 242.25 117.989 224 152 224z"/></svg>',
-                callback: () => { if (displayConn?.open) displayConn.send({ type: 'loadState', slot: 1 }); }
+                callback: () => sendToScreen({ type: 'loadState', slot: 1 })
             },
             home: {
                 displayName: "Menu",
                 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
-                callback: () => { if (displayConn?.open) displayConn.send({ type: 'resetToMenu' }); }
+                callback: () => sendToScreen({ type: 'resetToMenu' })
             }
         };
         EJS_Buttons = buttonConfig;
@@ -113,25 +109,33 @@
         // ============================================
         // STATE
         // ============================================
-        let peer, displayConn;
-        let heartbeatInterval, heartbeatCheckInterval;
+        let ws = null;
+        let controllerId = null;
         let playerNumber = null;
-        let lastScreenAck = 0;
+        let heartbeatInterval = null;
         let emulatorLoaded = false;
         let currentCore = null;
         let gameMenu = null;
 
-        // ============================================
-        // PEERJS
-        // ============================================
-        function initializePeer() {
-            const array = new Uint8Array(8);
-            crypto.getRandomValues(array);
-            const id = Array.from(array, b => b.toString(16).padStart(2, '0')).join('').substr(0, 6);
+        // Get screen ID from URL (e.g., ?screen=abc123)
+        const urlParams = new URLSearchParams(window.location.search);
+        const screenId = urlParams.get('screen');
 
-            peer = new Peer(id, { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } });
-            peer.on('open', () => { console.log('Controller ready:', id); updateStatus('connecting'); setTimeout(autoConnect, 1000); });
-            peer.on('error', e => { console.error('Peer error:', e); updateStatus('disconnected'); });
+        // Generate controller ID
+        controllerId = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+
+        // ============================================
+        // WEBSOCKET
+        // ============================================
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${window.location.host}/ws`;
+        }
+
+        function sendToScreen(msg) {
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(msg));
+            }
         }
 
         function updateStatus(state, playerNum = null) {
@@ -144,68 +148,78 @@
             }
         }
 
-        function connectToScreen() {
-            if (!peer || displayConn?.open) return;
-            displayConn = peer.connect('emulator-screen');
+        function connectWebSocket() {
+            if (ws?.readyState === WebSocket.OPEN) return;
+            if (!screenId) {
+                console.error('No screen ID in URL');
+                return;
+            }
 
-            displayConn.on('open', () => {
-                console.log('Connected to screen');
-                gameMenu?.setPeerConnection(displayConn);
+            updateStatus('connecting');
+            ws = new WebSocket(getWebSocketUrl());
 
-                // Start heartbeat - aligned with screen timing
+            ws.onopen = () => {
+                console.log('WebSocket connected, registering as controller:', controllerId, 'for screen:', screenId);
+                ws.send(JSON.stringify({ type: 'register-controller', controllerId, screenId }));
+
+                // Start heartbeat
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = setInterval(() => {
-                    if (displayConn?.open) displayConn.send({ type: 'heartbeat' });
-                }, HEARTBEAT_INTERVAL);
-
-                // Monitor screen responses
-                lastScreenAck = Date.now();
-                clearInterval(heartbeatCheckInterval);
-                heartbeatCheckInterval = setInterval(() => {
-                    if (Date.now() - lastScreenAck > HEARTBEAT_TIMEOUT) {
-                        console.log('Screen timeout');
-                        displayConn?.close();
-                        setTimeout(autoConnect, 1000);
+                    if (ws?.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'heartbeat' }));
                     }
                 }, HEARTBEAT_INTERVAL);
-            });
+            };
 
-            displayConn.on('data', data => {
-                if (data.type === 'ack') { lastScreenAck = Date.now(); return; }
-                if (data.type === 'playerAssignment') {
-                    playerNumber = data.playerNumber;
-                    console.log('Assigned Player', playerNumber + 1);
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                updateStatus('connecting');
+                clearInterval(heartbeatInterval);
+                playerNumber = null;
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            ws.onerror = (err) => {
+                console.error('WebSocket error:', err);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'registered':
+                    playerNumber = msg.playerNum;
+                    console.log('Controller registered, Player', playerNumber + 1);
                     updateStatus('connected', playerNumber);
-                }
-                if (data.type === 'stateUpdate') handleStateUpdate(data);
-            });
+                    // Update game menu with connection
+                    gameMenu?.setWebSocket(ws);
+                    break;
 
-            displayConn.on('close', () => handleDisconnect());
-            displayConn.on('error', () => handleDisconnect());
+                case 'error':
+                    console.error('Server error:', msg.error);
+                    break;
+
+                case 'screen-disconnected':
+                    console.log('Screen disconnected');
+                    updateStatus('connecting');
+                    playerNumber = null;
+                    break;
+
+                case 'stateUpdate':
+                    handleStateUpdate(msg);
+                    break;
+
+                case 'heartbeat-ack':
+                    // Server responded to heartbeat
+                    break;
+            }
         }
 
-        function handleDisconnect() {
-            console.log('Disconnected');
-            updateStatus('disconnected');
-            clearInterval(heartbeatInterval);
-            clearInterval(heartbeatCheckInterval);
-            playerNumber = null;
-            gameMenu?.setPeerConnection(null);
-            displayConn = null;
-            setTimeout(autoConnect, 2000);
-        }
-
-        function autoConnect() {
-            if (!peer || displayConn?.open) return;
-            console.log('Auto-connecting...');
-            updateStatus('connecting');
-            connectToScreen();
-        }
-
-        // Periodic reconnect check
-        setInterval(() => { if (peer && !displayConn?.open) autoConnect(); }, 5000);
-
-        initializePeer();
+        connectWebSocket();
 
         // ============================================
         // STATE HANDLERS
@@ -214,7 +228,10 @@
             console.log('State update:', data);
             if (data.state === 'game-ready') handleGameStarted(data.core);
             else if (data.state === 'game-selection') handleGameReset();
-            else if (data.state === 'game-pending') gameMenu?.setLoadingText(`Loading ${data.gameName || 'game'}...`);
+            else if (data.state === 'game-pending') {
+                gameMenu?.setLoadingText(`Loading ${data.gameName || 'game'}...`);
+                gameMenu?.showLoading();
+            }
         }
 
         function handleGameStarted(core) {
@@ -230,7 +247,7 @@
                     document.getElementById('game').innerHTML = '';
                     window.EJS_emulator = null;
                 }
-                window.EJS_Buttons = { ...buttonConfig, home: { ...buttonConfig.home, callback: () => { if (displayConn?.open) displayConn.send({ type: 'resetToMenu' }); } } };
+                window.EJS_Buttons = { ...buttonConfig, home: { ...buttonConfig.home, callback: () => sendToScreen({ type: 'resetToMenu' }) } };
                 const script = document.createElement('script');
                 script.src = 'EmulatorJS/data/loader.js';
                 script.onload = () => { console.log('EmulatorJS loaded'); emulatorLoaded = true; };
@@ -240,8 +257,22 @@
 
         function handleGameReset() {
             console.log('Game reset');
-            gameMenu?.show();
+
+            // Cleanup controller's emulator instance if any
+            if (window.EJS_emulator) {
+                try {
+                    window.EJS_emulator = null;
+                } catch (e) {}
+            }
+            emulatorLoaded = false;
+            currentCore = null;
+
+            // Clear and hide game container
+            document.getElementById('game').innerHTML = '';
             document.getElementById('game').style.display = 'none';
+
+            // Show menu
+            gameMenu?.show();
             document.getElementById('testController').classList.remove('hidden');
         }
 
@@ -252,7 +283,7 @@
         EJS_onCommand = event => {
             if (event.method === 'control.fullscreen') return;
             if (event.method === 'input.simulate') event.params.player = playerNumber ?? 0;
-            if (displayConn?.open) displayConn.send(event);
+            sendToScreen(event);
         };
 
         // ============================================
@@ -272,7 +303,7 @@
                     await customElements.whenDefined('game-menu');
                     gameMenu = document.getElementById('gameMenu');
                     document.getElementById('game').style.display = 'none';
-                    if (displayConn) gameMenu?.setPeerConnection(displayConn);
+                    if (ws?.readyState === WebSocket.OPEN) gameMenu?.setWebSocket(ws);
                 }
             } catch(e) { console.error('Failed to load game menu:', e); }
         }
@@ -281,9 +312,7 @@
         // Cleanup
         window.addEventListener('beforeunload', () => {
             clearInterval(heartbeatInterval);
-            clearInterval(heartbeatCheckInterval);
-            displayConn?.close();
-            peer?.destroy();
+            ws?.close();
         });
 
         // Test controller toggle

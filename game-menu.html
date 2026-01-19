@@ -14,7 +14,7 @@
 
                 this._mode = 'screen';
                 this._showManualConfig = true;
-                this._peerConnection = null;
+                this._ws = null;  // WebSocket connection
                 this._currentRomSource = null;
                 this._currentParentRomSource = null;
                 this._currentBiosSource = null;
@@ -32,6 +32,7 @@
                 this.fileInput = this.shadowRoot.getElementById('fileInput');
                 this.biosFileInput = this.shadowRoot.getElementById('biosFileInput');
                 this.loadingOverlay = this.shadowRoot.getElementById('loadingOverlay');
+                this.cancelButton = this.shadowRoot.getElementById('cancelButton');
             }
 
             connectedCallback() { this.init(); }
@@ -141,6 +142,13 @@
                         .loading-spinner { width: 50px; height: 50px; border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: #4CAF50; border-radius: 50%; animation: spin 1s linear infinite; }
                         @keyframes spin { to { transform: rotate(360deg); } }
                         .loading-text { color: #fff; margin-top: 20px; font-size: 16px; }
+                        .cancel-button {
+                            margin-top: 20px; padding: 10px 24px;
+                            background: rgba(244, 67, 54, 0.2); border: 2px solid rgba(244, 67, 54, 0.4);
+                            border-radius: 6px; color: #f44336; font-size: 14px; cursor: pointer;
+                            transition: all 0.3s;
+                        }
+                        .cancel-button:hover { background: rgba(244, 67, 54, 0.3); border-color: #f44336; }
                     </style>
 
                     <div class="game-controls" id="gameControls">
@@ -155,6 +163,7 @@
                         <div class="loading-overlay" id="loadingOverlay">
                             <div class="loading-spinner"></div>
                             <div class="loading-text">Loading game...</div>
+                            <button class="cancel-button" id="cancelButton">Cancel</button>
                         </div>
                     </div>
                     <input type="file" id="fileInput" accept=".zip,.7z,.nes,.smc,.sfc,.gb,.gba,.gbc,.n64,.z64,.nds,.pce,.ngp,.ngc,.ws,.wsc,.col,.cv,.d64">
@@ -301,16 +310,25 @@
 
                     this.showLoading();
 
-                    if (this._mode === 'controller' && this._peerConnection?.open) {
+                    if (this._mode === 'controller' && this._ws?.readyState === WebSocket.OPEN) {
                         if (this._currentRomSource instanceof File || this._currentBiosSource instanceof File) {
                             alert('File uploads not supported in controller mode. Use URLs or presets.');
                             this.hideLoading();
                             return;
                         }
-                        this._peerConnection.send({ type: 'startGame', gameData });
+                        this._ws.send(JSON.stringify({ type: 'startGame', gameData }));
                     } else {
                         this.dispatchEvent(new CustomEvent('gamestart', { detail: gameData, bubbles: true }));
                     }
+                };
+
+                this.cancelButton.onclick = () => {
+                    if (this._mode === 'controller' && this._ws?.readyState === WebSocket.OPEN) {
+                        this._ws.send(JSON.stringify({ type: 'resetToMenu' }));
+                    } else {
+                        this.dispatchEvent(new CustomEvent('resetToMenu', { bubbles: true }));
+                    }
+                    this.hideLoading();
                 };
             }
 
@@ -336,7 +354,7 @@
             updateStartButtonState() {
                 const hasRom = !!this._currentRomSource;
                 const hasCore = !!this.consoleSelect.value;
-                const connected = this._mode !== 'controller' || this._peerConnection?.open;
+                const connected = this._mode !== 'controller' || this._ws?.readyState === WebSocket.OPEN;
                 this.startButton.disabled = !hasRom || !hasCore || !connected;
             }
 
@@ -373,11 +391,13 @@
                 const el = this.shadowRoot.querySelector('.loading-text');
                 if (el) el.textContent = text;
             }
-            setPeerConnection(conn) { this._peerConnection = conn; this.updateConnectionStatus(); }
+            setWebSocket(ws) { this._ws = ws; this.updateConnectionStatus(); }
+            // Alias for backwards compatibility
+            setPeerConnection(conn) { this.setWebSocket(conn); }
 
             updateConnectionStatus() {
                 if (this._mode !== 'controller') return;
-                const connected = this._peerConnection?.open;
+                const connected = this._ws?.readyState === WebSocket.OPEN;
                 this.presetSelect.disabled = !connected;
                 this.romUrlInput.disabled = !connected;
                 this.biosUrlInput.disabled = !connected;

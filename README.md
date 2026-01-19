@@ -26,7 +26,6 @@ docker run -d --name retrobox -p 3333:3333 \
   -e HOST_IP=$(ipconfig getifaddr en0) \
   -v $(pwd)/EmulatorJS:/app/EmulatorJS \
   -v $(pwd)/presets:/app/presets \
-  -v $(pwd)/bios:/app/bios \
   retrobox
 ```
 
