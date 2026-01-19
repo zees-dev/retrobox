@@ -72,10 +72,11 @@ async function serveFile(path: string, req: Request): Promise<Response | null> {
     }
 
     const ext = extname(path).toLowerCase();
+    const isHtml = ext === ".html";
     const baseHeaders: Record<string, string> = {
       "Content-Type": getMimeType(path),
       "ETag": etag,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": isHtml ? "no-cache" : "public, max-age=31536000, immutable",
       ...getHeaders(req),
     };
 
