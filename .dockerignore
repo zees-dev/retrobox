@@ -1,0 +1,19 @@
+# Large files and roms
+*.zip
+*.7z
+bios/
+presets/
+
+# Symlinked directories
+EmulatorJS
+
+# Development
+node_modules
+.git
+.claude
+.scratch
+*.diff
+
+# Build artifacts
+Dockerfile
+.dockerignore
