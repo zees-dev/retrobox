@@ -30,5 +30,5 @@ docker run -d --name retrobox -p 3333:3333 \
   retrobox
 ```
 
-> **Note:** `HOST_IP` is required on macOS so LAN devices can discover the correct IP.
+> **Note:** `HOST_IP` is required on macOS so LAN devices can discover the correct IP.  
 On Linux, use `hostname -I | awk '{print $1}'` instead.
