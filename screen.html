@@ -530,6 +530,9 @@
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser" };
+            // Disable network-dependent features                                                                                                                   
+            window.EJS_disableAutoLang = true;    // Don't auto-fetch language files                                                                                       
+            window.EJS_language = "en";           // Use English (built-in, no fetch needed)
 
             if (!pendingROM) { console.error('No ROM'); setState(State.IDLE); return; }
             window.EJS_gameName = pendingROM.name;
