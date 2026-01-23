@@ -21,7 +21,7 @@
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #1a1a1a; font-family: Arial, sans-serif; }
         body { display: flex; justify-content: center; align-items: center; }
-        .game-container { width: 100%; height: 100%; border-radius: 8px; overflow: hidden; position: relative; }
+        .game-container { width: 100%; height: 100%; border-radius: 8px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
         #game { width: 100%; height: 100%; }
 
         #loadingOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); z-index: 2000; display: none; align-items: center; justify-content: center; }
@@ -438,7 +438,8 @@
                 source: gameData.romSource,
                 name: gameData.romName.split('.').slice(0, -1).join('.'),
                 core: gameData.core,
-                biosSource: gameData.biosSource
+                biosSource: gameData.biosSource,
+                gameHeight: gameData.gameHeight || null
             };
             setState(State.LOADING);
             initializeEmulator();
@@ -465,8 +466,14 @@
                 console.warn('Emulator cleanup error:', e);
             }
 
-            // Clear game container
-            document.getElementById('game').innerHTML = '';
+            // Clear game container and reset height
+            const container = document.querySelector('.game-container');
+            const gameEl = document.getElementById('game');
+            gameEl.innerHTML = '';
+            gameEl.style.height = '';
+            gameEl.style.width = '';
+            container.style.height = '';
+            container.style.width = '';
 
             // Reset state
             pendingROM = null;
@@ -519,6 +526,20 @@
             }, { passive: true });
         });
 
+        function applyGameHeight(heightPercent) {
+            const container = document.querySelector('.game-container');
+            const gameEl = document.getElementById('game');
+            if (heightPercent) {
+                container.style.height = heightPercent + 'vh';
+                container.style.width = '100%';
+                gameEl.style.height = '100%';
+                gameEl.style.width = '100%';
+            } else {
+                container.style.height = '100%';
+                container.style.width = '100%';
+            }
+        }
+
         function initializeEmulator() {
             window.EJS_player = '#game';
             window.EJS_pathtodata = 'EmulatorJS/data/';
@@ -530,6 +551,11 @@
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser" };
+
+            // Apply game height if specified
+            if (pendingROM?.gameHeight) {
+                applyGameHeight(pendingROM.gameHeight);
+            }
             // Disable network-dependent features                                                                                                                   
             window.EJS_disableAutoLang = true;    // Don't auto-fetch language files                                                                                       
             window.EJS_language = "en";           // Use English (built-in, no fetch needed)
@@ -562,6 +588,10 @@
             window.EJS_onGameStart = function() {
                 console.log('Game started');
                 setState(State.PLAYING);
+                // Reapply game height after EmulatorJS has initialized
+                if (pendingROM?.gameHeight) {
+                    applyGameHeight(pendingROM.gameHeight);
+                }
                 setTimeout(() => {
                     const ctx = EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
                     if (ctx?.state === 'suspended') {

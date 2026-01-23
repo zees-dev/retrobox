@@ -18,6 +18,7 @@
                 this._currentRomSource = null;
                 this._currentParentRomSource = null;
                 this._currentBiosSource = null;
+                this._currentGameHeight = '';  // empty = 100% (default)
 
                 this.shadowRoot.innerHTML = this.getTemplate();
 
@@ -33,6 +34,7 @@
                 this.biosFileInput = this.shadowRoot.getElementById('biosFileInput');
                 this.loadingOverlay = this.shadowRoot.getElementById('loadingOverlay');
                 this.cancelButton = this.shadowRoot.getElementById('cancelButton');
+                this.gameHeightSelect = this.shadowRoot.getElementById('gameHeightSelect');
             }
 
             connectedCallback() { this.init(); }
@@ -159,6 +161,12 @@
                         <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
                         <button class="upload-btn" id="biosUploadButton">+</button>
                         <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
+                        <select id="gameHeightSelect" class="full-width">
+                            <option value="">Game Height: 100%</option>
+                            <option value="90">90%</option>
+                            <option value="75">75%</option>
+                            <option value="60">60%</option>
+                        </select>
                         <button class="start-button full-width" id="startButton" disabled>Start Game</button>
                         <div class="loading-overlay" id="loadingOverlay">
                             <div class="loading-spinner"></div>
@@ -283,6 +291,10 @@
 
                 this.consoleSelect.onchange = () => this.updateStartButtonState();
 
+                this.gameHeightSelect.onchange = (e) => {
+                    this._currentGameHeight = e.target.value;
+                };
+
                 this.presetSelect.onchange = (e) => {
                     if (e.target.value) {
                         this.applyPreset(e.target.value);
@@ -305,7 +317,8 @@
                         parentRomSource: this._currentParentRomSource,
                         biosSource: this._currentBiosSource,
                         core: this.consoleSelect.value,
-                        romName
+                        romName,
+                        gameHeight: this._currentGameHeight || null
                     };
 
                     this.showLoading();
@@ -402,6 +415,7 @@
                 this.romUrlInput.disabled = !connected;
                 this.biosUrlInput.disabled = !connected;
                 this.consoleSelect.disabled = !connected;
+                this.gameHeightSelect.disabled = !connected;
                 this.updateStartButtonState();
 
                 if (!connected) {
