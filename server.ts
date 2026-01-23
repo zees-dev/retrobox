@@ -66,17 +66,19 @@ async function serveFile(path: string, req: Request): Promise<Response | null> {
     const stats = { mtime: f.lastModified, size: f.size };
     const etag = `"${stats.mtime}-${stats.size}"`;
 
-    // Check If-None-Match for 304 Not Modified
-    if (req.headers.get("if-none-match") === etag) {
+    const ext = extname(path).toLowerCase();
+    const isHtml = ext === ".html";
+
+    // Check If-None-Match for 304 Not Modified (skip for HTML to prevent caching)
+    if (!isHtml && req.headers.get("if-none-match") === etag) {
       return new Response(null, { status: 304, headers: getHeaders(req) });
     }
 
-    const ext = extname(path).toLowerCase();
-    const isHtml = ext === ".html";
     const baseHeaders: Record<string, string> = {
       "Content-Type": getMimeType(path),
-      "ETag": etag,
-      "Cache-Control": isHtml ? "no-cache" : "public, max-age=31536000, immutable",
+      ...(isHtml ? {} : { "ETag": etag }),
+      "Cache-Control": isHtml ? "no-store, no-cache, must-revalidate, max-age=0" : "public, max-age=31536000, immutable",
+      ...(isHtml ? { "Pragma": "no-cache", "Expires": "0" } : {}),
       ...getHeaders(req),
     };
 
