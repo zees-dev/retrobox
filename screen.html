@@ -116,6 +116,7 @@
         let ws = null;
         let screenId = null;
         let heartbeatInterval = null;
+        let loaderScript = null; // Track the loader script element
 
         // ============================================
         // WEBRTC P2P STATE
@@ -259,6 +260,11 @@
 
                 case 'resetToMenu':
                     resetToGameMenu();
+                    break;
+
+                case 'hardRefresh':
+                    console.log('Hard refresh requested by controller');
+                    window.location.reload();
                     break;
 
                 case 'saveState':
@@ -567,6 +573,8 @@
 
         function resetToGameMenu() {
             saveState(0);
+
+            // Clean up emulator if it exists
             try {
                 if (window.EJS_emulator) {
                     EJS_emulator.pause?.();
@@ -575,6 +583,17 @@
                     window.EJS_emulator = null;
                 }
             } catch (e) { console.warn('Emulator cleanup error:', e); }
+
+            // Remove loader script to stop any pending load
+            if (loaderScript) {
+                loaderScript.remove();
+                loaderScript = null;
+            }
+
+            // Clear global EmulatorJS config to prevent stale state
+            const ejsGlobals = ['EJS_player', 'EJS_gameUrl', 'EJS_gameName', 'EJS_core', 'EJS_biosUrl',
+                'EJS_ready', 'EJS_onGameStart', 'EJS_onCommand', 'EJS_startOnLoaded'];
+            ejsGlobals.forEach(key => { try { delete window[key]; } catch {} });
 
             const container = document.querySelector('.game-container');
             const gameEl = document.getElementById('game');
@@ -673,8 +692,14 @@
             };
 
             window.EJS_ready = function() {
+                // Guard: only proceed if we're still loading this game
+                if (currentState !== State.LOADING || !pendingROM) {
+                    console.log('EmulatorJS ready but load was cancelled');
+                    return;
+                }
                 console.log('EmulatorJS ready');
                 function autoStart() {
+                    if (currentState !== State.LOADING) return; // Cancelled
                     if (EJS_emulator?.started) return;
                     const btn = document.querySelector('#game .ejs_start_button');
                     if (btn?.offsetParent) { btn.click(); return; }
@@ -684,17 +709,25 @@
             };
 
             window.EJS_onGameStart = function() {
+                // Guard: only proceed if we're still expecting this game to start
+                if (currentState !== State.LOADING || !pendingROM) {
+                    console.log('Game start callback but load was cancelled');
+                    return;
+                }
                 console.log('Game started');
                 setState(State.PLAYING);
                 if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
                 setTimeout(() => {
+                    if (currentState !== State.PLAYING) return; // State changed
                     const ctx = EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
                     if (ctx?.state === 'suspended') {
                         if (hasUserInteraction) ctx.resume().catch(() => showAudioIndicator());
                         else showAudioIndicator();
                     }
                 }, 500);
-                setTimeout(() => loadState(0), 1500);
+                setTimeout(() => {
+                    if (currentState === State.PLAYING) loadState(0);
+                }, 1500);
             };
 
             window.EJS_onCommand = function(evt) {
@@ -711,9 +744,15 @@
                 }
             };
 
-            const script = document.createElement('script');
-            script.src = 'EmulatorJS/data/loader.js';
-            document.body.appendChild(script);
+            // Remove any existing loader script before adding new one
+            if (loaderScript) {
+                loaderScript.remove();
+                loaderScript = null;
+            }
+
+            loaderScript = document.createElement('script');
+            loaderScript.src = 'EmulatorJS/data/loader.js';
+            document.body.appendChild(loaderScript);
         }
 
         // ============================================

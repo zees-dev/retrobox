@@ -339,6 +339,11 @@
                     handleStateUpdate(msg);
                     break;
 
+                case 'hardRefresh':
+                    console.log('Hard refresh requested by screen');
+                    window.location.reload();
+                    break;
+
                 case 'heartbeat-ack':
                     break;
             }
@@ -378,7 +383,7 @@
                 window.EJS_Buttons = {
                     ...buttonConfig,
                     restart: isP1,
-                    home: isP1 ? { ...buttonConfig.home, callback: () => sendToScreen({ type: 'resetToMenu' }) } : false
+                    home: isP1 ? buttonConfig.home : false
                 };
                 const script = document.createElement('script');
                 script.src = 'EmulatorJS/data/loader.js';

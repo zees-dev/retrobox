@@ -35,6 +35,7 @@
                 this.loadingOverlay = this.shadowRoot.getElementById('loadingOverlay');
                 this.cancelButton = this.shadowRoot.getElementById('cancelButton');
                 this.gameHeightSelect = this.shadowRoot.getElementById('gameHeightSelect');
+                this.refreshButton = this.shadowRoot.getElementById('refreshButton');
             }
 
             connectedCallback() { this.init(); }
@@ -151,6 +152,36 @@
                             transition: all 0.3s;
                         }
                         .cancel-button:hover { background: rgba(244, 67, 54, 0.3); border-color: #f44336; }
+
+                        .refresh-button {
+                            position: fixed;
+                            top: 15px;
+                            right: 15px;
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: rgba(255, 255, 255, 0.05);
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            color: rgba(255, 255, 255, 0.3);
+                            cursor: pointer;
+                            display: none;
+                            align-items: center;
+                            justify-content: center;
+                            transition: all 0.3s;
+                            z-index: 100;
+                            pointer-events: auto;
+                        }
+                        .refresh-button:hover {
+                            background: rgba(255, 255, 255, 0.1);
+                            border-color: rgba(255, 255, 255, 0.2);
+                            color: rgba(255, 255, 255, 0.6);
+                        }
+                        .refresh-button svg {
+                            width: 18px;
+                            height: 18px;
+                            fill: currentColor;
+                        }
+                        :host([mode="controller"]) .refresh-button { display: flex; }
                     </style>
 
                     <div class="game-controls" id="gameControls">
@@ -176,6 +207,9 @@
                     </div>
                     <input type="file" id="fileInput" accept=".zip,.7z,.nes,.smc,.sfc,.gb,.gba,.gbc,.n64,.z64,.nds,.pce,.ngp,.ngc,.ws,.wsc,.col,.cv,.d64">
                     <input type="file" id="biosFileInput" accept=".zip,.7z,.bin,.rom,.bios">
+                    <button class="refresh-button" id="refreshButton" title="Refresh Screen & Controller">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                    </button>
                 `;
             }
 
@@ -370,6 +404,13 @@
                         this.dispatchEvent(new CustomEvent('resetToMenu', { bubbles: true }));
                     }
                     this.hideLoading();
+                };
+
+                this.refreshButton.onclick = () => {
+                    if (this._ws?.readyState === WebSocket.OPEN) {
+                        this._ws.send(JSON.stringify({ type: 'hardRefresh' }));
+                    }
+                    setTimeout(() => window.location.reload(), 500);
                 };
             }
 
