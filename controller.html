@@ -5,17 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RetroBox Controller</title>
     <script>
-        // Disable WakeLock by intercepting errors
-        const originalRequest = navigator.wakeLock?.request;
-        if (originalRequest) {
-            navigator.wakeLock.request = async function(...args) {
-                try { return await originalRequest.apply(this, args); }
-                catch (e) {
-                    console.log('WakeLock error caught:', e.message);
-                    return { released: false, type: args[0], release: async () => {}, addEventListener: () => {}, removeEventListener: () => {} };
-                }
-            };
+        // Screen Wake Lock - keep screen on while controller is active
+        let wakeLock = null;
+        async function requestWakeLock() {
+            if (!('wakeLock' in navigator)) return;
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => console.log('Wake Lock released'));
+                console.log('Wake Lock acquired');
+            } catch (e) {
+                console.log('Wake Lock error:', e.message);
+            }
         }
+        // Request on load and re-acquire when page becomes visible
+        requestWakeLock();
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') requestWakeLock();
+        });
     </script>
     <style>
         * { box-sizing: border-box; }
