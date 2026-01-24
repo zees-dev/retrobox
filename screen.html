@@ -30,7 +30,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .controllers { position: fixed; top: max(10px, 1.5vh); right: max(10px, 1.5vw); z-index: 1000; display: flex; gap: max(4px, 0.8vmin); }
-        .controller-dot { width: max(6px, 1vmin); height: max(6px, 1vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.3s; }
+        .controller-dot { width: max(6px, 1vmin); height: max(6px, 1vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.3s; position: relative; }
         .controller-dot.active { width: max(10px, 1.5vmin); height: max(10px, 1.5vmin); border: none; animation: pulse 2s ease-in-out infinite; }
         .controller-dot.active.player-0 { background: #4CAF50; box-shadow: 0 0 max(6px, 1vmin) rgba(76, 175, 80, 0.5); }
         .controller-dot.active.player-1 { background: #2196F3; box-shadow: 0 0 max(6px, 1vmin) rgba(33, 150, 243, 0.5); }
@@ -41,6 +41,7 @@
         .controller-dot.reserved.player-1 { background: #2196F3; }
         .controller-dot.reserved.player-2 { background: #9C27B0; }
         .controller-dot.reserved.player-3 { background: #FFC107; }
+        .controller-dot .ping { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); font-size: 8px; color: rgba(255,255,255,0.5); white-space: nowrap; margin-top: 2px; font-family: monospace; }
         @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } }
 
         .qr-container { position: fixed; top: 20px; left: 20px; z-index: 999; text-align: center; background: rgba(0, 0, 0, 0.9); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); transition: opacity 0.3s, transform 0.3s; display: flex; flex-direction: column; align-items: center; }
@@ -101,7 +102,7 @@
         // CONSTANTS
         // ============================================
         const HEARTBEAT_INTERVAL = 3000;
-        const PLAYER_RESERVATION_TIME = 10000;
+        const GRACE_PERIOD = 7500;
 
         // ============================================
         // STATE
@@ -112,11 +113,17 @@
         let isPaused = false;
         let gameMenu = null;
 
-        // WebSocket
         let ws = null;
         let screenId = null;
-        let connectedControllers = new Map(); // controllerId -> { playerNum, connected }
         let heartbeatInterval = null;
+
+        // ============================================
+        // WEBRTC P2P STATE
+        // ============================================
+        const peers = new Map(); // controllerId -> { pc, channel, playerNum, rtt }
+        const pendingRemoval = new Map(); // controllerId -> timeout
+        const echoBuf = new Uint32Array(1); // Pre-allocated echo buffer (Worker 3 pattern)
+        let iceCandidateBuffers = new Map(); // controllerId -> [candidates]
 
         // ============================================
         // STATE MANAGEMENT
@@ -134,34 +141,19 @@
         }
 
         function broadcastToControllers(msg) {
-            if (ws?.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(msg));
-            }
+            if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         }
 
         function updateScreenUI() {
             switch (currentState) {
                 case State.IDLE:
-                    gameMenu?.show();
-                    hidePauseOverlay();
-                    showQRCode();
-                    showPlayerStatus();
-                    showStatus();
-                    break;
+                    gameMenu?.show(); hidePauseOverlay(); showQRCode(); showPlayerStatus(); showStatus(); break;
                 case State.LOADING:
                     gameMenu?.setLoadingText(`Loading ${pendingROM?.name || 'game'}...`);
-                    gameMenu?.showLoading();
-                    hidePauseOverlay();
-                    hideQRCode();
-                    hidePlayerStatus();
-                    hideStatus();
-                    break;
+                    gameMenu?.showLoading(); hidePauseOverlay(); hideQRCode(); hidePlayerStatus(); hideStatus(); break;
                 case State.PLAYING:
-                    gameMenu?.hide();
-                    hidePlayerStatus();
-                    hideStatus();
-                    if (isPaused) { showPauseOverlay(); showQRCode(); }
-                    else { hidePauseOverlay(); hideQRCode(); }
+                    gameMenu?.hide(); hidePlayerStatus(); hideStatus();
+                    if (isPaused) { showPauseOverlay(); showQRCode(); } else { hidePauseOverlay(); hideQRCode(); }
                     break;
             }
         }
@@ -177,15 +169,13 @@
         function syncPauseUI(paused) {
             if (currentState !== State.PLAYING) return;
             isPaused = paused;
-            if (isPaused) { showPauseOverlay(); showQRCode(); }
-            else { hidePauseOverlay(); hideQRCode(); }
+            if (isPaused) { showPauseOverlay(); showQRCode(); } else { hidePauseOverlay(); hideQRCode(); }
             broadcastToControllers(getStateInfo());
         }
 
         function setPause(paused) {
             if (currentState !== State.PLAYING || isPaused === paused) return;
-            if (paused) EJS_emulator?.pause?.();
-            else EJS_emulator?.play?.();
+            if (paused) EJS_emulator?.pause?.(); else EJS_emulator?.play?.();
             syncPauseUI(paused);
         }
 
@@ -216,19 +206,13 @@
                 console.log('WebSocket connected, registering as screen:', screenId);
                 ws.send(JSON.stringify({ type: 'register-screen', screenId }));
 
-                // Start heartbeat
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = setInterval(() => {
-                    if (ws?.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'heartbeat' }));
-                    }
+                    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'heartbeat' }));
                 }, HEARTBEAT_INTERVAL);
             };
 
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                handleMessage(msg);
-            };
+            ws.onmessage = e => handleMessage(JSON.parse(e.data));
 
             ws.onclose = () => {
                 console.log('WebSocket disconnected, reconnecting...');
@@ -237,7 +221,7 @@
                 setTimeout(connectWebSocket, 2000);
             };
 
-            ws.onerror = (err) => {
+            ws.onerror = err => {
                 console.error('WebSocket error:', err);
                 updateStatus('error', 'Connection error');
             };
@@ -251,39 +235,22 @@
                     break;
 
                 case 'controller-connected':
-                    console.log('Controller connected:', msg.controllerId, 'Player', msg.playerNum + 1);
-                    connectedControllers.set(msg.controllerId, { playerNum: msg.playerNum, connected: true });
-                    updateControllerDisplay();
-                    // Send current state to the new controller
-                    ws.send(JSON.stringify({ ...getStateInfo(), targetController: msg.controllerId }));
+                    handleControllerConnected(msg.controllerId, msg.playerNum);
                     break;
 
                 case 'controller-disconnected':
-                    console.log('Controller disconnected:', msg.controllerId, 'Player', msg.playerNum + 1);
-                    const ctrl = connectedControllers.get(msg.controllerId);
-                    if (ctrl) {
-                        ctrl.connected = false;
-                        // Reserve player number for reconnection
-                        setTimeout(() => {
-                            const c = connectedControllers.get(msg.controllerId);
-                            if (c && !c.connected) {
-                                connectedControllers.delete(msg.controllerId);
-                                updateControllerDisplay();
-                            }
-                        }, PLAYER_RESERVATION_TIME);
-                    }
-                    updateControllerDisplay();
+                    handleControllerDisconnected(msg.controllerId, msg.playerNum);
+                    break;
 
-                    // Auto-pause when no controllers connected
-                    const activeControllers = Array.from(connectedControllers.values()).filter(c => c.connected);
-                    if (activeControllers.length === 0 && currentState === State.PLAYING && !isPaused) {
-                        console.log('No controllers, pausing...');
-                        setPause(true);
-                    }
+                case 'webrtc-offer':
+                    handleWebRTCOffer(msg.from, msg.offer);
+                    break;
+
+                case 'ice-candidate':
+                    handleRemoteIceCandidate(msg.from, msg.candidate);
                     break;
 
                 case 'heartbeat-ack':
-                    // Server responded to heartbeat
                     break;
 
                 case 'startGame':
@@ -303,14 +270,155 @@
                     break;
 
                 default:
-                    // Handle input from controller
+                    // Handle input from controller (WebSocket fallback)
                     if (currentState === State.PLAYING && EJS_emulator?.handler && msg.method) {
-                        try {
-                            EJS_emulator.handler.exec(msg.method, msg.params);
-                        } catch (e) {
-                            console.error('Input error:', e);
-                        }
+                        try { EJS_emulator.handler.exec(msg.method, msg.params); }
+                        catch (e) { console.error('Input error:', e); }
                     }
+            }
+        }
+
+        // ============================================
+        // WEBRTC P2P (Screen side)
+        // ============================================
+        function handleControllerConnected(controllerId, playerNum) {
+            console.log('Controller connected:', controllerId, 'Player', playerNum + 1);
+
+            // Cancel pending removal if reconnecting
+            if (pendingRemoval.has(controllerId)) {
+                clearTimeout(pendingRemoval.get(controllerId));
+                pendingRemoval.delete(controllerId);
+                console.log('[WebRTC] Reconnection within grace period, restored Player', playerNum + 1);
+            }
+
+            // Track peer (P2P connection created on offer)
+            if (!peers.has(controllerId)) {
+                peers.set(controllerId, { pc: null, channel: null, playerNum, rtt: 0 });
+            }
+
+            updateControllerDisplay();
+            ws.send(JSON.stringify({ ...getStateInfo(), targetController: controllerId }));
+        }
+
+        function handleControllerDisconnected(controllerId, playerNum) {
+            console.log('Controller disconnected:', controllerId, 'Player', playerNum + 1);
+
+            // Start grace period for reconnection
+            const timeout = setTimeout(() => {
+                console.log('[WebRTC] Grace period expired for Player', playerNum + 1);
+                const peer = peers.get(controllerId);
+                if (peer?.pc) try { peer.pc.close(); } catch {}
+                peers.delete(controllerId);
+                pendingRemoval.delete(controllerId);
+                iceCandidateBuffers.delete(controllerId);
+                updateControllerDisplay();
+
+                // Auto-pause when no controllers
+                if (peers.size === 0 && currentState === State.PLAYING && !isPaused) {
+                    console.log('No controllers, pausing...');
+                    setPause(true);
+                }
+            }, GRACE_PERIOD);
+
+            pendingRemoval.set(controllerId, timeout);
+            updateControllerDisplay();
+        }
+
+        function handleWebRTCOffer(controllerId, offer) {
+            console.log('[WebRTC] Received offer from:', controllerId);
+
+            let peer = peers.get(controllerId);
+            if (!peer) {
+                peer = { pc: null, channel: null, playerNum: 0, rtt: 0 };
+                peers.set(controllerId, peer);
+            }
+
+            // Close existing connection if any
+            if (peer.pc) try { peer.pc.close(); } catch {}
+
+            const pc = new RTCPeerConnection({ iceServers: [] });
+            peer.pc = pc;
+            iceCandidateBuffers.set(controllerId, { buffer: [], remoteDescSet: false });
+
+            pc.ondatachannel = e => {
+                console.log('[WebRTC] DataChannel received from:', controllerId);
+                const ch = e.channel;
+                peer.channel = ch;
+                ch.binaryType = 'arraybuffer';
+
+                ch.onmessage = evt => handleP2PMessage(controllerId, evt.data);
+                ch.onclose = () => console.log('[WebRTC] DataChannel closed:', controllerId);
+                ch.onerror = err => console.error('[WebRTC] DataChannel error:', controllerId, err);
+            };
+
+            pc.onicecandidate = e => {
+                if (e.candidate && ws?.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'ice-candidate', to: controllerId, candidate: e.candidate }));
+                }
+            };
+
+            pc.onconnectionstatechange = () => {
+                console.log('[WebRTC] Connection state:', controllerId, pc.connectionState);
+            };
+
+            pc.setRemoteDescription(offer).then(() => {
+                const iceData = iceCandidateBuffers.get(controllerId);
+                if (iceData) {
+                    iceData.remoteDescSet = true;
+                    iceData.buffer.forEach(c => pc.addIceCandidate(c).catch(() => {}));
+                    iceData.buffer = [];
+                }
+                return pc.createAnswer();
+            }).then(answer => {
+                pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({ type: 'webrtc-answer', to: controllerId, answer }));
+                console.log('[WebRTC] Sent answer to:', controllerId);
+            });
+        }
+
+        function handleRemoteIceCandidate(controllerId, candidate) {
+            const peer = peers.get(controllerId);
+            const iceData = iceCandidateBuffers.get(controllerId);
+
+            if (!peer?.pc) return;
+
+            if (iceData?.remoteDescSet) {
+                peer.pc.addIceCandidate(candidate).catch(() => {});
+            } else if (iceData) {
+                iceData.buffer.push(candidate);
+            }
+        }
+
+        function handleP2PMessage(controllerId, data) {
+            const view = new DataView(data);
+            const methodId = view.getUint8(0);
+            const ts = view.getUint32(1, false);
+            const peer = peers.get(controllerId);
+
+            if (methodId === 0) {
+                // Ping report: update RTT display
+                const rtt = view.getUint16(5, true);
+                if (peer) peer.rtt = rtt;
+                updateControllerDisplay();
+            } else if (methodId === 1) {
+                // Input: echo timestamp back for RTT, then execute
+                if (peer?.channel?.readyState === 'open') {
+                    echoBuf[0] = ts;
+                    peer.channel.send(echoBuf.buffer);
+                }
+
+                if (currentState === State.PLAYING && EJS_emulator?.handler) {
+                    const button = view.getUint8(5);
+                    const state = view.getUint8(6);
+                    const player = peer?.playerNum ?? 0;
+                    try {
+                        EJS_emulator.handler.exec('input.simulate', {
+                            button, player,
+                            state: state === 1 ? 'pressed' : 'released',
+                            value: state
+                        });
+                    } catch (e) { console.error('P2P input error:', e); }
+                }
             }
         }
 
@@ -320,35 +428,42 @@
             container.innerHTML = '';
             playerStatus.innerHTML = '';
 
+            // Build player map from peers
             const playerMap = new Map();
-            for (const [id, ctrl] of connectedControllers) {
-                playerMap.set(ctrl.playerNum, ctrl.connected);
+            for (const [id, peer] of peers) {
+                const isReserved = pendingRemoval.has(id);
+                playerMap.set(peer.playerNum, { connected: !isReserved, rtt: peer.rtt });
             }
 
             for (let i = 0; i < 4; i++) {
-                // Top-right corner dots
+                const info = playerMap.get(i);
+
+                // Top-right corner dots with ping
                 const dot = document.createElement('div');
                 dot.className = 'controller-dot';
-                if (playerMap.has(i)) {
-                    dot.classList.add(playerMap.get(i) ? 'active' : 'reserved', `player-${i}`);
+                if (info) {
+                    dot.classList.add(info.connected ? 'active' : 'reserved', `player-${i}`);
+                    if (info.connected && info.rtt > 0) {
+                        const ping = document.createElement('span');
+                        ping.className = 'ping';
+                        ping.textContent = info.rtt + 'ms';
+                        dot.appendChild(ping);
+                    }
                 }
                 container.appendChild(dot);
 
                 // Centered player status indicators
                 const indicator = document.createElement('div');
                 indicator.className = 'player-indicator';
-                const isConnected = playerMap.has(i) && playerMap.get(i);
-                const isReserved = playerMap.has(i) && !playerMap.get(i);
-                if (isConnected) indicator.classList.add('connected');
-                if (isReserved) indicator.classList.add('reserved');
-                indicator.innerHTML = `<span class="dot ${isConnected || isReserved ? 'player-' + i : ''}"></span><span>P${i + 1}</span>`;
+                if (info?.connected) indicator.classList.add('connected');
+                else if (info) indicator.classList.add('reserved');
+                indicator.innerHTML = `<span class="dot ${info ? 'player-' + i : ''}"></span><span>P${i + 1}</span>`;
                 playerStatus.appendChild(indicator);
             }
         }
 
         // Initialize
         async function init() {
-            // Get screen ID from URL param or hostname
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('host')) {
                 screenId = urlParams.get('host').replace(/\./g, '-');
@@ -415,8 +530,7 @@
             qrUrl.href = url;
 
             const containerWidth = size + 20;
-            let fontSize = Math.max(12, Math.min(Math.floor(containerWidth / 12), 20));
-            qrUrl.style.fontSize = fontSize + 'px';
+            qrUrl.style.fontSize = Math.max(12, Math.min(Math.floor(containerWidth / 12), 20)) + 'px';
 
             qrCodeGenerated = true;
         }
@@ -446,41 +560,25 @@
         }
 
         function resetToGameMenu() {
-            // Save state before leaving (slot 0 for auto-save)
             saveState(0);
-
-            // Cleanup emulator without page reload
             try {
                 if (window.EJS_emulator) {
-                    // Stop emulator
                     EJS_emulator.pause?.();
-                    // Cleanup audio context
                     const ctx = EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
-                    if (ctx && ctx.state !== 'closed') {
-                        ctx.close().catch(() => {});
-                    }
-                    // Clear the emulator
+                    if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
                     window.EJS_emulator = null;
                 }
-            } catch (e) {
-                console.warn('Emulator cleanup error:', e);
-            }
+            } catch (e) { console.warn('Emulator cleanup error:', e); }
 
-            // Clear game container and reset height
             const container = document.querySelector('.game-container');
             const gameEl = document.getElementById('game');
             gameEl.innerHTML = '';
-            gameEl.style.height = '';
-            gameEl.style.width = '';
-            container.style.height = '';
-            container.style.width = '';
+            gameEl.style.height = gameEl.style.width = '';
+            container.style.height = container.style.width = '';
 
-            // Reset state
             pendingROM = null;
             isPaused = false;
             setState(State.IDLE);
-
-            // Broadcast to controllers (connections stay intact)
             broadcastToControllers({ type: 'stateUpdate', state: 'game-selection', gameName: null, isPaused: false });
         }
 
@@ -491,9 +589,7 @@
                 const key = EJS_emulator.getBaseFileName() + `.state${slot}`;
                 await EJS_emulator.storage.states.put(key, state);
                 EJS_emulator.displayMessage?.(EJS_emulator.localization?.("SAVED STATE TO BROWSER") || "State saved");
-            } catch (e) {
-                console.warn('Save state failed:', e);
-            }
+            } catch (e) { console.warn('Save state failed:', e); }
         }
 
         async function loadState(slot) {
@@ -507,9 +603,7 @@
                 } else {
                     EJS_emulator.displayMessage?.("No saved state found");
                 }
-            } catch (e) {
-                console.warn('Load state failed:', e);
-            }
+            } catch (e) { console.warn('Load state failed:', e); }
         }
 
         // Audio unlock
@@ -532,11 +626,9 @@
             if (heightPercent) {
                 container.style.height = heightPercent + 'vh';
                 container.style.width = '100%';
-                gameEl.style.height = '100%';
-                gameEl.style.width = '100%';
+                gameEl.style.height = gameEl.style.width = '100%';
             } else {
-                container.style.height = '100%';
-                container.style.width = '100%';
+                container.style.height = container.style.width = '100%';
             }
         }
 
@@ -550,22 +642,19 @@
             window.EJS_defaultControls = false;
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
+            window.EJS_defaultOptions = { "save-state-location": "browser" };
+
+            // Enable multitap for multiplayer games
+            if (pendingROM?.core === 'psx') {
+                window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
+            }
             // Disable network-dependent features
+
+            if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
             window.EJS_disableAutoLang = true;
             window.EJS_language = "en";
 
             if (!pendingROM) { console.error('No ROM'); setState(State.IDLE); return; }
-
-            // Set default options, with PSX-specific multitap setting
-            window.EJS_defaultOptions = { "save-state-location": "browser" };
-            if (pendingROM.core === 'psx') {
-                window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
-            }
-
-            // Apply game height if specified
-            if (pendingROM?.gameHeight) {
-                applyGameHeight(pendingROM.gameHeight);
-            }
             window.EJS_gameName = pendingROM.name;
             window.EJS_gameUrl = pendingROM.source;
             window.EJS_core = pendingROM.core;
@@ -593,10 +682,7 @@
             window.EJS_onGameStart = function() {
                 console.log('Game started');
                 setState(State.PLAYING);
-                // Reapply game height after EmulatorJS has initialized
-                if (pendingROM?.gameHeight) {
-                    applyGameHeight(pendingROM.gameHeight);
-                }
+                if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
                 setTimeout(() => {
                     const ctx = EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
                     if (ctx?.state === 'suspended') {
