@@ -23,18 +23,24 @@
         #game { position: fixed; inset: 0; width: 100vw; height: 100vh; width: 100dvw; height: 100dvh; }
         .loading { color: #fff; text-align: center; padding: 20px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
-        .status-dot { position: fixed; top: 15px; right: 15px; width: 12px; height: 12px; border-radius: 50%; z-index: 9999; transition: all 0.3s; opacity: 0; pointer-events: none; }
+        .player-status { position: fixed; top: 15px; left: 15px; z-index: 9999; display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0; transition: opacity 0.3s; }
+        .player-status.visible { opacity: 1; }
+        .status-dot { position: relative; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; color: #fff; font-family: Arial, sans-serif; transition: all 0.3s; }
         .status-dot.connecting { background: #FF9800; opacity: 0.5; animation: blink 1s ease-in-out infinite; }
-        .status-dot.connected { opacity: 1; animation: breathe 2s ease-in-out infinite; }
+        .status-dot.connected { animation: breathe 2s ease-in-out infinite; }
         .status-dot.player-0 { background: #4CAF50; box-shadow: 0 0 15px rgba(76, 175, 80, 0.6); }
         .status-dot.player-1 { background: #2196F3; box-shadow: 0 0 15px rgba(33, 150, 243, 0.6); }
         .status-dot.player-2 { background: #9C27B0; box-shadow: 0 0 15px rgba(156, 39, 176, 0.6); }
         .status-dot.player-3 { background: #FFC107; box-shadow: 0 0 15px rgba(255, 193, 7, 0.6); }
-        .status-dot.p2p::after { content: ''; position: absolute; bottom: -4px; right: -4px; width: 6px; height: 6px; background: #00ff00; border-radius: 50%; }
+        .status-dot.p2p::after { content: ''; position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; background: #00ff00; border-radius: 50%; }
         @keyframes blink { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-        @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } }
+        @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.9; } }
 
-        .ping-badge { position: fixed; top: 30px; right: 15px; font-size: 10px; color: rgba(255,255,255,0.6); z-index: 9998; font-family: monospace; }
+        .ping-badge { font-size: 11px; font-family: monospace; font-weight: bold; }
+        .ping-badge.ping-good { color: #4CAF50; }
+        .ping-badge.ping-ok { color: #FFEB3B; }
+        .ping-badge.ping-warn { color: #FF9800; }
+        .ping-badge.ping-bad { color: #f44336; }
 
         .test-controller { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999; width: max(280px, 25vw); max-width: 85vw; pointer-events: auto; }
         .test-controller.hidden { display: none; }
@@ -58,8 +64,10 @@
 </head>
 <body>
     <div id="game"><div class="loading">Mobile Controller</div></div>
-    <div class="status-dot" id="statusDot"></div>
-    <div class="ping-badge" id="pingBadge"></div>
+    <div class="player-status" id="playerStatus">
+        <div class="status-dot" id="statusDot"></div>
+        <div class="ping-badge" id="pingBadge"></div>
+    </div>
     <div class="test-controller" id="testController">
         <button class="test-controller-toggle" id="testControllerToggle">
             <span class="emoji">+</span>
@@ -87,11 +95,11 @@
         EJS_disableAutoLang = true;
         EJS_language = "en";
 
-        // Button config
+        // Button config (base - modified per player in handleGameStarted)
         const buttonConfig = {
-            playPause: true, restart: true, mute: true, settings: true, fullscreen: true,
+            playPause: true, restart: false, mute: true, settings: true, fullscreen: true,
             saveState: false, loadState: false, quickSave: false, quickLoad: false,
-            gamepad: true, cheat: true, volume: true,
+            gamepad: true, cheat: false, volume: true, disk: false,
             netplay: false, screenRecord: false, saveSavFiles: false, loadSavFiles: false,
             screenshot: false, cacheManager: false, exitEmulation: false,
             remoteSave: {
@@ -169,7 +177,7 @@
                 txView.setUint32(1, performance.now() | 0, false);
                 txView.setUint16(5, currentRtt, true);
                 inputChannel.send(new Uint8Array(txBuf, 0, 7));
-                document.getElementById('pingBadge').textContent = currentRtt + 'ms';
+                updatePingDisplay(currentRtt);
                 console.log('[WebRTC] RTT:', currentRtt, 'ms');
             };
 
@@ -236,13 +244,31 @@
         }
 
         function updateStatus(state, playerNum = null) {
+            const playerStatus = document.getElementById('playerStatus');
             const dot = document.getElementById('statusDot');
             dot.className = 'status-dot ' + state;
             document.body.className = '';
             if (state === 'connected' && playerNum !== null) {
                 dot.classList.add(`player-${playerNum}`);
+                dot.textContent = `P${playerNum + 1}`;
                 document.body.classList.add('connected', `player-${playerNum}`);
+                playerStatus.classList.add('visible');
+            } else if (state === 'connecting') {
+                dot.textContent = '';
+                playerStatus.classList.add('visible');
+            } else {
+                playerStatus.classList.remove('visible');
             }
+        }
+
+        function updatePingDisplay(rtt) {
+            const badge = document.getElementById('pingBadge');
+            badge.textContent = rtt + 'ms';
+            badge.className = 'ping-badge';
+            if (rtt <= 50) badge.classList.add('ping-good');
+            else if (rtt <= 100) badge.classList.add('ping-ok');
+            else if (rtt <= 150) badge.classList.add('ping-warn');
+            else badge.classList.add('ping-bad');
         }
 
         function connectWebSocket() {
@@ -341,7 +367,13 @@
                     document.getElementById('game').innerHTML = '';
                     window.EJS_emulator = null;
                 }
-                window.EJS_Buttons = { ...buttonConfig, home: { ...buttonConfig.home, callback: () => sendToScreen({ type: 'resetToMenu' }) } };
+                // P1 only: restart and home menu
+                const isP1 = playerNumber === 0;
+                window.EJS_Buttons = {
+                    ...buttonConfig,
+                    restart: isP1,
+                    home: isP1 ? { ...buttonConfig.home, callback: () => sendToScreen({ type: 'resetToMenu' }) } : false
+                };
                 const script = document.createElement('script');
                 script.src = 'EmulatorJS/data/loader.js';
                 script.onload = () => { console.log('EmulatorJS loaded'); emulatorLoaded = true; };
