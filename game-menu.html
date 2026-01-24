@@ -251,7 +251,9 @@
                     if (!file) return;
                     this._currentRomSource = file;
                     this._currentParentRomSource = null;
+                    this._currentBiosSource = null;
                     this.romUrlInput.value = file.name;
+                    this.biosUrlInput.value = '';
                     this.presetSelect.value = '';
                     this.consoleSelect.value = '';
                     this.startButton.disabled = true;
@@ -276,6 +278,8 @@
                     if (url) {
                         this._currentRomSource = url;
                         this._currentParentRomSource = null;
+                        this._currentBiosSource = null;
+                        this.biosUrlInput.value = '';
                         this.presetSelect.value = '';
                         const ext = url.split('/').pop().split('?')[0].split('.').pop().toLowerCase();
                         const core = this.detectCore(ext);
