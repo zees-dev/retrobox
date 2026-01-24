@@ -324,12 +324,18 @@
             updateControllerDisplay();
         }
 
+        function getNextPlayerNum() {
+            const used = new Set([...peers.values()].map(p => p.playerNum));
+            for (let i = 0; i < 4; i++) if (!used.has(i)) return i;
+            return peers.size;
+        }
+
         function handleWebRTCOffer(controllerId, offer) {
             console.log('[WebRTC] Received offer from:', controllerId);
 
             let peer = peers.get(controllerId);
             if (!peer) {
-                peer = { pc: null, channel: null, playerNum: 0, rtt: 0 };
+                peer = { pc: null, channel: null, playerNum: getNextPlayerNum(), rtt: 0 };
                 peers.set(controllerId, peer);
             }
 
@@ -648,8 +654,6 @@
             if (pendingROM?.core === 'psx') {
                 window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
             }
-            // Disable network-dependent features
-
             if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
             window.EJS_disableAutoLang = true;
             window.EJS_language = "en";
