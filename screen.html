@@ -550,17 +550,22 @@
             window.EJS_defaultControls = false;
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
+            // Disable network-dependent features
+            window.EJS_disableAutoLang = true;
+            window.EJS_language = "en";
+
+            if (!pendingROM) { console.error('No ROM'); setState(State.IDLE); return; }
+
+            // Set default options, with PSX-specific multitap setting
             window.EJS_defaultOptions = { "save-state-location": "browser" };
+            if (pendingROM.core === 'psx') {
+                window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
+            }
 
             // Apply game height if specified
             if (pendingROM?.gameHeight) {
                 applyGameHeight(pendingROM.gameHeight);
             }
-            // Disable network-dependent features                                                                                                                   
-            window.EJS_disableAutoLang = true;    // Don't auto-fetch language files                                                                                       
-            window.EJS_language = "en";           // Use English (built-in, no fetch needed)
-
-            if (!pendingROM) { console.error('No ROM'); setState(State.IDLE); return; }
             window.EJS_gameName = pendingROM.name;
             window.EJS_gameUrl = pendingROM.source;
             window.EJS_core = pendingROM.core;
