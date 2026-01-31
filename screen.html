@@ -417,7 +417,7 @@
                 if (peer) peer.rtt = rtt;
                 updateControllerDisplay();
             } else if (methodId === 1) {
-                // Input: echo timestamp back for RTT, then execute
+                // Digital input: echo timestamp back for RTT, then execute
                 if (peer?.channel?.readyState === 'open') {
                     echoBuf[0] = ts;
                     peer.channel.send(echoBuf.buffer);
@@ -434,6 +434,25 @@
                             value: state
                         });
                     } catch (e) { console.error('P2P input error:', e); }
+                }
+            } else if (methodId === 2) {
+                // Analog input: echo timestamp back for RTT, then execute with analog value
+                if (peer?.channel?.readyState === 'open') {
+                    echoBuf[0] = ts;
+                    peer.channel.send(echoBuf.buffer);
+                }
+
+                if (currentState === State.PLAYING && EJS_emulator?.handler) {
+                    const button = view.getUint8(5);
+                    const analogValue = view.getUint16(6, true); // little-endian uint16
+                    const player = peer?.playerNum ?? 0;
+                    try {
+                        EJS_emulator.handler.exec('input.simulate', {
+                            button, player,
+                            state: 'analog',
+                            value: analogValue
+                        });
+                    } catch (e) { console.error('P2P analog input error:', e); }
                 }
             }
         }
