@@ -683,10 +683,38 @@
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "show" };
 
-            // Enable multitap for multiplayer games
-            if (pendingROM?.core === 'psx') {
-                window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
+            // // Enable multitap for multiplayer games
+            // if (pendingROM?.core === 'psx') {
+            //     window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
+            // }
+            // Enable multitap and optimizations for PS1 cores (pcsx_rearmed and mednafen_psx_hw)
+            if (pendingROM?.core === 'psx' || pendingROM?.core === 'pcsx_rearmed') {
+                window.EJS_defaultOptions = {
+                    ...window.EJS_defaultOptions,
+                    "pcsx_rearmed_multitap": "port 1",
+                    // Performance optimizations
+                    "pcsx_rearmed_duping_enable": "enabled",
+                    "pcsx_rearmed_gpu_thread_rendering": "async",
+                    "pcsx_rearmed_async_cd": "async",
+                    "pcsx_rearmed_drc": "enabled",
+                    // Visual improvements
+                    "pcsx_rearmed_dithering": "enabled",
+                    "shader": "2xScaleHQ.glslp"
+                };
             }
+            if (pendingROM?.core === 'mednafen_psx_hw') {
+                window.EJS_defaultOptions = {
+                    ...window.EJS_defaultOptions,
+                    // Graphics enhancements
+                    "beetle_psx_hw_internal_resolution": "2x",
+                    "beetle_psx_hw_pgxp_mode": "memory only",
+                    "beetle_psx_hw_pgxp_texture": "enabled",
+                    "beetle_psx_hw_filter": "bilinear",
+                    "beetle_psx_hw_dither_mode": "disabled",
+                    // Performance
+                    "beetle_psx_hw_cd_fastload": "2x"
+                };
+             }
             if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
             window.EJS_disableAutoLang = true;
             window.EJS_language = "en";
