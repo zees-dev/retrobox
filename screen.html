@@ -687,11 +687,12 @@
             // if (pendingROM?.core === 'psx') {
             //     window.EJS_defaultOptions["pcsx_rearmed_multitap"] = "port 1";
             // }
-            // Enable multitap and optimizations for PS1 cores (pcsx_rearmed and mednafen_psx_hw)
+
+            // Enable optimizations for PS1 cores (pcsx_rearmed and mednafen_psx_hw)
             if (pendingROM?.core === 'psx' || pendingROM?.core === 'pcsx_rearmed') {
                 window.EJS_defaultOptions = {
                     ...window.EJS_defaultOptions,
-                    "pcsx_rearmed_multitap": "port 1",
+                    // "pcsx_rearmed_multitap": "port 1",
                     // Performance optimizations
                     "pcsx_rearmed_duping_enable": "enabled",
                     "pcsx_rearmed_gpu_thread_rendering": "async",
