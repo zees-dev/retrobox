@@ -635,7 +635,7 @@
             } catch (e) { console.warn('Load state failed:', e); }
         }
 
-        let fpsVisible = true; // Track FPS state (starts visible based on defaultOptions)
+        let fpsVisible = false; // Track FPS state (starts hidden by default)
         function toggleFPS() {
             if (!EJS_emulator?.gameManager) return;
             fpsVisible = !fpsVisible;
@@ -681,7 +681,7 @@
             window.EJS_defaultControls = false;
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
-            window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "show" };
+            window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "hide" };
 
             // // Enable multitap for multiplayer games
             // if (pendingROM?.core === 'psx') {
