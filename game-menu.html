@@ -267,19 +267,12 @@
 
                 // Set default selection if presets loaded
                 if (Object.keys(this.gamePresets).length > 0) {
-                    const firstCore = Object.keys(this.gamePresets)[0];
-                    this.coreSelect.value = firstCore;
+                    // Default to Nintendo 64 if available, otherwise first core
+                    const defaultCore = this.gamePresets['n64'] ? 'n64' : Object.keys(this.gamePresets)[0];
+                    this.coreSelect.value = defaultCore;
                     this.updatePlayerCountOptions();
-                    const firstPlayerCount = Object.keys(this.gamePresets[firstCore] || {})[0];
-                    if (firstPlayerCount) {
-                        this.playerCountSelect.value = firstPlayerCount;
-                        this.updateGameOptions();
-                        const firstGame = this.gamePresets[firstCore]?.[firstPlayerCount]?.[0];
-                        if (firstGame) {
-                            this.gameSelect.value = firstGame.rom;
-                            this.applySelectedGame();
-                        }
-                    }
+                    // Don't auto-select player count - show all games grouped
+                    this.updateGameOptions();
                 }
             }
 
