@@ -352,7 +352,7 @@
 
                 if (core && this.gamePresets[core]) {
                     const playerCounts = Object.keys(this.gamePresets[core]).sort((a, b) => {
-                        return parseInt(b) - parseInt(a); // Sort descending (8p, 5p, 4p, 3p, 2p)
+                        return parseInt(b) - parseInt(a); // Sort descending (4p, 3p, 2p)
                     });
                     for (const pc of playerCounts) {
                         const opt = document.createElement('option');
@@ -361,12 +361,13 @@
                         this.playerCountSelect.appendChild(opt);
                     }
                     this.playerCountSelect.disabled = false;
+                    // Keep "Players" selected (empty value) and show all games
+                    this.updateGameOptions();
                 } else {
                     this.playerCountSelect.disabled = true;
+                    this.gameSelect.innerHTML = '<option value="">Select Game</option>';
+                    this.gameSelect.disabled = true;
                 }
-
-                this.gameSelect.innerHTML = '<option value="">Select Game</option>';
-                this.gameSelect.disabled = true;
             }
 
             updateGameOptions() {
@@ -374,9 +375,34 @@
                 const playerCount = this.playerCountSelect.value;
                 this.gameSelect.innerHTML = '<option value="">Select Game</option>';
 
-                if (core && playerCount && this.gamePresets[core]?.[playerCount]) {
+                if (!core) {
+                    this.gameSelect.disabled = true;
+                    return;
+                }
+
+                if (!playerCount) {
+                    // "Players" selected (empty) - show all games grouped by player count
+                    const playerCounts = Object.keys(this.gamePresets[core]).sort((a, b) => {
+                        return parseInt(b) - parseInt(a);
+                    });
+                    for (const pc of playerCounts) {
+                        const games = this.gamePresets[core][pc];
+                        if (!games?.length) continue;
+                        const optgroup = document.createElement('optgroup');
+                        optgroup.label = pc;
+                        for (const game of games.slice().sort((a, b) => a.name.localeCompare(b.name))) {
+                            const opt = document.createElement('option');
+                            opt.value = JSON.stringify({ rom: game.rom, playerCount: pc });
+                            opt.textContent = game.name;
+                            optgroup.appendChild(opt);
+                        }
+                        this.gameSelect.appendChild(optgroup);
+                    }
+                    this.gameSelect.disabled = false;
+                } else if (this.gamePresets[core]?.[playerCount]) {
+                    // Specific player count selected - show only those games
                     const games = this.gamePresets[core][playerCount];
-                    for (const game of games) {
+                    for (const game of games.slice().sort((a, b) => a.name.localeCompare(b.name))) {
                         const opt = document.createElement('option');
                         opt.value = game.rom;
                         opt.textContent = game.name;
@@ -557,11 +583,27 @@
             applySelectedGame() {
                 const core = this.coreSelect.value;
                 const playerCount = this.playerCountSelect.value;
-                const romPath = this.gameSelect.value;
+                const gameValue = this.gameSelect.value;
 
-                if (!core || !playerCount || !romPath) return;
+                if (!core || !gameValue) return;
 
-                const games = this.gamePresets[core]?.[playerCount];
+                let romPath, actualPlayerCount;
+
+                // When "Players" is selected (empty), value is JSON with rom and playerCount
+                if (!playerCount) {
+                    try {
+                        const parsed = JSON.parse(gameValue);
+                        romPath = parsed.rom;
+                        actualPlayerCount = parsed.playerCount;
+                    } catch {
+                        return;
+                    }
+                } else {
+                    romPath = gameValue;
+                    actualPlayerCount = playerCount;
+                }
+
+                const games = this.gamePresets[core]?.[actualPlayerCount];
                 const game = games?.find(g => g.rom === romPath);
                 if (!game) return;
 
