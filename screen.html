@@ -716,7 +716,14 @@
                     // Performance
                     "beetle_psx_hw_cd_fastload": "2x"
                 };
-             }
+            }
+            // N64: disable WebGL2 to avoid glMapBufferRange errors (uses legacy WebGL1 core)
+            if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
+                window.EJS_defaultOptions = {
+                    ...window.EJS_defaultOptions,
+                    "webgl2Enabled": "disabled"
+                };
+            }
             if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
             window.EJS_disableAutoLang = true;
             window.EJS_language = "en";
