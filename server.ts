@@ -1,7 +1,8 @@
 import { serve, file } from "bun";
-import { join, extname } from "path";
+import { join, extname, basename } from "path";
 import { networkInterfaces } from "os";
 import { reverse } from "dns/promises";
+import { readdir } from "fs/promises";
 
 const PORT = process.env.PORT || 3333;
 const ROOT_DIR = import.meta.dir;
@@ -159,6 +160,109 @@ serve({
         } catch {}
       }
       return new Response(JSON.stringify({ hostname, ip: clientIP }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+    }
+
+    // Dynamic presets API - scans presets directory structure
+    if (pathname === "/api/presets") {
+      const presetsDir = join(ROOT_DIR, "presets");
+      const presets: Record<string, Record<string, Array<{ name: string; rom: string; bios?: string; parentRom?: string }>>> = {};
+
+      // Special games that have their own directory with bios/parent rom requirements
+      // Key format: "gameDirName" -> { bios path relative to game dir, parentRom path }
+      const specialGames: Record<string, { biosFile?: string; parentRomFile?: string }> = {
+        "kof99": { biosFile: "arcade.zip" },
+        "kof99ae": { biosFile: "neogeo.zip", parentRomFile: "kof99.zip" },
+      };
+
+      try {
+        const cores = await readdir(presetsDir, { withFileTypes: true });
+
+        for (const core of cores) {
+          if (!core.isDirectory() || core.name === "bios") continue;
+
+          const coreDir = join(presetsDir, core.name);
+          const coreName = core.name;
+          presets[coreName] = {};
+
+          const items = await readdir(coreDir, { withFileTypes: true });
+
+          for (const item of items) {
+            if (!item.isDirectory()) continue;
+
+            const itemPath = join(coreDir, item.name);
+            const relativePath = `presets/${coreName}/${item.name}`;
+
+            // Check if this is a player count directory (2p, 3p, 4p, etc.)
+            if (/^\d+p$/.test(item.name)) {
+              const playerCount = item.name;
+              if (!presets[coreName][playerCount]) presets[coreName][playerCount] = [];
+
+              const roms = await readdir(itemPath, { withFileTypes: true });
+              for (const rom of roms) {
+                if (rom.isFile() && (rom.name.endsWith(".zip") || rom.name.endsWith(".7z"))) {
+                  const gameName = rom.name.replace(/\.(zip|7z)$/, "");
+                  presets[coreName][playerCount].push({
+                    name: gameName,
+                    rom: `${relativePath}/${rom.name}`,
+                  });
+                } else if (rom.isDirectory()) {
+                  // Check for special game subdirectory (like kof99 inside 2p/)
+                  const special = specialGames[rom.name];
+                  if (special) {
+                    const gameDir = join(itemPath, rom.name);
+                    const gameDirRelative = `${relativePath}/${rom.name}`;
+                    const gameFiles = await readdir(gameDir, { withFileTypes: true });
+                    const mainRom = gameFiles.find(r => r.isFile() && r.name === `${rom.name}.zip`);
+                    if (mainRom) {
+                      presets[coreName][playerCount].push({
+                        name: rom.name.toUpperCase().replace(/([a-z])(\d)/gi, "$1 $2"),
+                        rom: `${gameDirRelative}/${mainRom.name}`,
+                        ...(special.biosFile && { bios: `${gameDirRelative}/${special.biosFile}` }),
+                        ...(special.parentRomFile && { parentRom: `${gameDirRelative}/${special.parentRomFile}` }),
+                      });
+                    }
+                  }
+                }
+              }
+            } else {
+              // Legacy: Special game directory at core level (like arcade/kof99)
+              const special = specialGames[item.name];
+              if (special) {
+                const roms = await readdir(itemPath, { withFileTypes: true });
+                const mainRom = roms.find(r => r.isFile() && r.name === `${item.name}.zip`);
+                if (mainRom) {
+                  if (!presets[coreName]["2p"]) presets[coreName]["2p"] = [];
+                  presets[coreName]["2p"].push({
+                    name: item.name.toUpperCase().replace(/([a-z])(\d)/gi, "$1 $2"),
+                    rom: `${relativePath}/${mainRom.name}`,
+                    ...(special.biosFile && { bios: `${relativePath}/${special.biosFile}` }),
+                    ...(special.parentRomFile && { parentRom: `${relativePath}/${special.parentRomFile}` }),
+                  });
+                }
+              }
+            }
+          }
+
+          // Sort games alphabetically within each player count
+          for (const pc of Object.keys(presets[coreName])) {
+            presets[coreName][pc].sort((a, b) => a.name.localeCompare(b.name));
+          }
+
+          // Remove empty cores
+          if (Object.keys(presets[coreName]).length === 0) {
+            delete presets[coreName];
+          }
+        }
+
+        return new Response(JSON.stringify(presets), {
+          headers: { "Content-Type": "application/json", ...getHeaders(req) }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: "Failed to scan presets" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", ...getHeaders(req) }
+        });
+      }
     }
 
     if (pathname !== "/" && pathname.endsWith("/")) pathname = pathname.slice(0, -1);

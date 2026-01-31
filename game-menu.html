@@ -6,7 +6,7 @@
 </head>
 <body>
     <script type="module">
-        // Game Menu Web Component - Streamlined
+        // Game Menu Web Component - Dynamic Preset Loading
         class GameMenuElement extends HTMLElement {
             constructor() {
                 super();
@@ -14,16 +14,20 @@
 
                 this._mode = 'screen';
                 this._showManualConfig = true;
-                this._ws = null;  // WebSocket connection
+                this._ws = null;
                 this._currentRomSource = null;
                 this._currentParentRomSource = null;
                 this._currentBiosSource = null;
-                this._currentGameHeight = '';  // empty = 100% (default)
+                this._currentGameHeight = '';
+                this.gamePresets = {};
 
                 this.shadowRoot.innerHTML = this.getTemplate();
 
                 this.container = this.shadowRoot.querySelector('.game-controls');
-                this.presetSelect = this.shadowRoot.getElementById('presetSelect');
+                this.allGamesSelect = this.shadowRoot.getElementById('allGamesSelect');
+                this.coreSelect = this.shadowRoot.getElementById('coreSelect');
+                this.playerCountSelect = this.shadowRoot.getElementById('playerCountSelect');
+                this.gameSelect = this.shadowRoot.getElementById('gameSelect');
                 this.romUrlInput = this.shadowRoot.getElementById('romUrlInput');
                 this.biosUrlInput = this.shadowRoot.getElementById('biosUrlInput');
                 this.consoleSelect = this.shadowRoot.getElementById('consoleSelect');
@@ -114,6 +118,13 @@
                         select option { background: #333; color: #fff; font-size: 16px; }
                         @supports (-webkit-touch-callout: none) { select { font-size: 16px; } }
 
+                        .filter-row {
+                            grid-column: 1 / -1;
+                            display: grid;
+                            grid-template-columns: 1fr 1fr;
+                            gap: 10px;
+                        }
+
                         .upload-btn, .start-button {
                             width: 40px; height: 40px; border-radius: 6px;
                             border: 2px solid rgba(255, 255, 255, 0.2);
@@ -185,7 +196,13 @@
                     </style>
 
                     <div class="game-controls" id="gameControls">
-                        <select id="presetSelect" class="full-width"><option value="">Select Preset Game</option></select>
+                        <select id="allGamesSelect" class="full-width"><option value="">All Games</option></select>
+                        <div class="or-separator">- or filter by -</div>
+                        <div class="filter-row">
+                            <select id="coreSelect"><option value="">Console</option></select>
+                            <select id="playerCountSelect" disabled><option value="">Players</option></select>
+                        </div>
+                        <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
                         <div class="or-separator">- or -</div>
                         <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
                         <button class="upload-btn" id="uploadButton">+</button>
@@ -213,64 +230,21 @@
                 `;
             }
 
-            init() {
-                // Simplified preset array: [key, name, rom, core, bios?, parentRom?]
-                this.gamePresets = [
-                    // 8 players
-                    ['bishi-bashi', 'Bishi Bashi Special - [8p]', 'presets/psx/Bishi Bashi Special (Europe).zip', 'psx'],
-                    ['fifa2005', 'FIFA Soccer 2005 - [8p]', 'presets/psx/FIFA Soccer 2005 (USA) (EnEs).zip', 'psx'],
-                    ['winning-eleven-4', 'Winning Eleven 4 - [8p]', 'presets/psx/World Soccer Jikkyou Winning Eleven 4 (Japan).zip', 'psx'],
-                    // 5 players
-                    ['devil-dice', 'Devil Dice - [5p]', 'presets/psx/Devil Dice (USA).zip', 'psx'],
-                    // 4 players
-                    ['blast-chamber', 'Blast Chamber - [4p]', 'presets/psx/Blast Chamber.zip', 'psx'],
-                    ['crash-bash', 'Crash Bash - [4p]', 'presets/psx/Crash Bash (USA).zip', 'psx'],
-                    ['ctr', 'CTR: Crash Team Racing - [4p]', 'presets/psx/CTR_ Crash Team Racing.zip', 'psx'],
-                    ['klonoa-volleyball', 'Klonoa Beach Volleyball - [4p]', 'presets/psx/Klonoa Beach Volley - Saikyou Team Kettei-sen (Japan).zip', 'psx'],
-                    ['nba-jam-te', 'NBA Jam: Tournament Edition - [4p]', 'presets/psx/NBA Jam_ Tournament Edition.zip', 'psx'],
-                    ['quake2', 'Quake 2 - [4p]', 'presets/psx/Quake 2.zip', 'psx'],
-                    ['slam-masters', 'Saturday Night Slam Masters - [4p]', 'presets/snes/Saturday Night Slam Masters (USA).zip', 'snes'],
-                    ['simpsons', 'Simpsons, The - [4p]', 'presets/arcade/simpsons.zip', 'arcade'],
-                    ['sled-storm', 'Sled Storm - [4p]', 'presets/psx/Sled Storm (USA).zip', 'psx'],
-                    ['snowbro2', 'Snow Bros 2 - [4p]', 'presets/arcade/snowbro2.zip', 'arcade'],
-                    ['speed-punks', 'Speed Punks - [4p]', 'presets/psx/Speed Punks (USA).zip', 'psx'],
-                    ['team-buddies', 'Team Buddies - [4p]', 'presets/psx/Team Buddies.zip', 'psx'],
-                    ['worms-armageddon', 'Worms Armageddon - [4p]', 'presets/psx/Worms Armageddon (USA).zip', 'psx'],
-                    ['wwf-smackdown', 'WWF SmackDown - [4p]', 'presets/psx/WWF SmackDown (USA).zip', 'psx'],
-                    // 4 players - N64
-                    ['battletanx-ga', 'BattleTanx: Global Assault - [4p]', 'presets/n64/BattleTanx_ Global Assault.zip', 'n64'],
-                    ['bomberman64', 'Bomberman 64 - [4p]', 'presets/n64/Bomberman 64.zip', 'n64'],
-                    ['fzero-x', 'F-Zero X - [4p]', 'presets/n64/F-Zero X.zip', 'n64'],
-                    ['gauntlet-legends', 'Gauntlet Legends - [4p]', 'presets/n64/Gauntlet Legends.zip', 'n64'],
-                    ['mario-kart-64', 'Mario Kart 64 - [4p]', 'presets/n64/Mario Kart 64.zip', 'n64'],
-                    ['mario-party-3', 'Mario Party 3 - [4p]', 'presets/n64/Mario Party 3.zip', 'n64'],
-                    ['perfect-dark', 'Perfect Dark - [4p]', 'presets/n64/Perfect Dark (U) (V1.1).zip', 'n64'],
-                    ['sm64-splitscreen', 'Super Mario 64 Splitscreen - [4p]', 'presets/n64/Super Mario 64 Splitscreen Multiplayer.zip', 'n64'],
-                    ['smash-bros', 'Super Smash Bros - [4p]', 'presets/n64/Super Smash Bros.zip', 'n64'],
-                    // 3 players
-                    ['dino', 'Cadillacs and Dinosaurs - [3p]', 'presets/arcade/dino.zip', 'arcade'],
-                    ['secret-of-mana', 'Secret of Mana - [3p]', 'presets/snes/Secret of Mana (USA).zip', 'snes'],
-                    // 2 players
-                    ['cocoma-knight', 'Cocoma Knight in Bizyland - [2p]', 'presets/snes/cocoma-knight-in-bizyland.zip', 'snes'],
-                    ['contra-hard-corps', 'Contra: Hard Corps - [2p]', 'presets/sega-mega-drive/Contra - Hard Corps (USA, Korea).zip', 'segaMD'],
-                    ['dbgt-final-bout', 'Dragon Ball GT: Final Bout - [2p]', 'presets/psx/Dragon Ball GT_ Final Bout.zip', 'psx'],
-                    ['firepower2000', 'Firepower 2000 - [2p]', 'presets/snes/Firepower 2000 (USA).zip', 'snes'],
-                    ['gran-turismo-2', 'Gran Turismo 2 - [2p]', 'presets/psx/Gran Turismo 2.zip', 'psx'],
-                    ['circus-mystery', 'Great Circus Mystery (Mickey & Minnie) - [2p]', 'presets/snes/Great Circus Mystery Starring Mickey & Minnie, The (USA).zip', 'snes'],
-                    ['kof99', 'King of Fighters 99 - [2p]', 'presets/arcade/kof99/kof99.zip', 'arcade', 'presets/arcade/kof99/arcade.zip'],
-                    // ['kof99ae', 'King of Fighters 99 AE - [2p]', 'presets/arcade/kof99ae/kof99ae.zip', 'arcade', 'presets/arcade/kof99ae/neogeo.zip', 'presets/arcade/kof99ae/kof99.zip'],
-                    ['kirby-super-star', 'Kirby Super Star - [2p]', 'presets/snes/Kirby Super Star (USA).zip', 'snes'],
-                    ['mslug3', 'Metal Slug 3 - [2p]', 'presets/arcade/mslug3.zip', 'arcade', 'presets/bios/neogeo.zip'],
-                    ['mortal-kombat-4', 'Mortal Kombat 4 - [2p]', 'presets/psx/Mortal Kombat 4 (USA).zip', 'psx'],
-                    ['new-super-mario-land', 'New Super Mario Land - [2p]', 'presets/snes/New Super Mario Land.zip', 'snes'],
-                    ['snowbros', 'Snow Bros - [2p]', 'presets/arcade/snowbros.zip', 'arcade'],
-                    ['bomberman3', 'Super Bomberman 3 - [2p]', 'presets/snes/Super Bomberman 3 (Europe).zip', 'snes'],
-                    ['tekken3', 'Tekken 3 - [2p]', 'presets/psx/Tekken 3 Full Unlocked with 3 Round Default.zip', 'psx'],
-                    ['thps2', 'Tony Hawk\'s Pro Skater 2 - [2p]', 'presets/psx/Tony Hawk\'s Pro Skater 2.zip', 'psx'],
-                    ['zombies', 'Zombies Ate My Neighbors - [2p]', 'presets/snes/Zombies Ate My Neighbors (USA).zip', 'snes'],
-                ];
+            async init() {
+                // Core display names
+                this.coreNames = {
+                    psx: 'PlayStation',
+                    snes: 'SNES',
+                    arcade: 'Arcade',
+                    n64: 'Nintendo 64',
+                    segaMD: 'Sega MD',
+                    nes: 'NES',
+                    gb: 'Game Boy',
+                    gba: 'GBA',
+                    nds: 'Nintendo DS',
+                };
 
-                // Core mapping (console name -> core value)
+                // All core values for manual console selection
                 this.coreValues = {
                     "Nintendo 64": "n64", "Nintendo Game Boy": "gb", "Nintendo Game Boy Advance": "gba",
                     "Nintendo DS": "nds", "Nintendo Entertainment System": "nes", "Super Nintendo Entertainment System": "snes",
@@ -283,31 +257,179 @@
                     "Commodore Plus/4": "vice_xplus4", "Commodore PET": "vice_xpet", "DOSBOX-PURE": "dosbox_pure"
                 };
 
+                // Fetch presets from API
+                await this.loadPresets();
+
                 this.populateSelectors();
                 this.setupEventListeners();
                 this.updateManualConfigVisibility();
-
-                this.presetSelect.value = 'mslug3';
-                this.applyPreset('mslug3');
                 this.updateConnectionStatus();
+
+                // Set default selection if presets loaded
+                if (Object.keys(this.gamePresets).length > 0) {
+                    const firstCore = Object.keys(this.gamePresets)[0];
+                    this.coreSelect.value = firstCore;
+                    this.updatePlayerCountOptions();
+                    const firstPlayerCount = Object.keys(this.gamePresets[firstCore] || {})[0];
+                    if (firstPlayerCount) {
+                        this.playerCountSelect.value = firstPlayerCount;
+                        this.updateGameOptions();
+                        const firstGame = this.gamePresets[firstCore]?.[firstPlayerCount]?.[0];
+                        if (firstGame) {
+                            this.gameSelect.value = firstGame.rom;
+                            this.applySelectedGame();
+                        }
+                    }
+                }
+            }
+
+            async loadPresets() {
+                try {
+                    const res = await fetch('/api/presets');
+                    if (res.ok) {
+                        this.gamePresets = await res.json();
+                    }
+                } catch (err) {
+                    console.error('Failed to load presets:', err);
+                    this.gamePresets = {};
+                }
             }
 
             populateSelectors() {
+                // Populate "All Games" dropdown with optgroups: "Core - Xp"
+                const grouped = {};
+                for (const [core, playerCounts] of Object.entries(this.gamePresets)) {
+                    // Sort player counts descending
+                    const sortedPCs = Object.keys(playerCounts).sort((a, b) => parseInt(b) - parseInt(a));
+                    for (const pc of sortedPCs) {
+                        const groupKey = `${core}|${pc}`;
+                        grouped[groupKey] = playerCounts[pc]
+                            .map(game => ({ ...game, core, playerCount: pc }))
+                            .sort((a, b) => a.name.localeCompare(b.name));
+                    }
+                }
+                // Sort group keys by core display name, then player count descending
+                const sortedGroups = Object.keys(grouped).sort((a, b) => {
+                    const [coreA, pcA] = a.split('|');
+                    const [coreB, pcB] = b.split('|');
+                    const coreCompare = (this.coreNames[coreA] || coreA).localeCompare(this.coreNames[coreB] || coreB);
+                    if (coreCompare !== 0) return coreCompare;
+                    return parseInt(pcB) - parseInt(pcA);
+                });
+                for (const groupKey of sortedGroups) {
+                    const [core, pc] = groupKey.split('|');
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = `${this.coreNames[core] || core} - ${pc}`;
+                    for (const game of grouped[groupKey]) {
+                        const opt = document.createElement('option');
+                        opt.value = JSON.stringify({ rom: game.rom, core: game.core, playerCount: game.playerCount });
+                        opt.textContent = game.name;
+                        optgroup.appendChild(opt);
+                    }
+                    this.allGamesSelect.appendChild(optgroup);
+                }
+
+                // Populate core dropdown with cores that have presets
+                for (const core of Object.keys(this.gamePresets)) {
+                    const opt = document.createElement('option');
+                    opt.value = core;
+                    opt.textContent = this.coreNames[core] || core;
+                    this.coreSelect.appendChild(opt);
+                }
+
+                // Populate full console list for manual selection
                 for (const [name, core] of Object.entries(this.coreValues)) {
                     const opt = document.createElement('option');
                     opt.value = core;
                     opt.textContent = name;
                     this.consoleSelect.appendChild(opt);
                 }
-                for (const [key, name] of this.gamePresets) {
-                    const opt = document.createElement('option');
-                    opt.value = key;
-                    opt.textContent = name;
-                    this.presetSelect.appendChild(opt);
+            }
+
+            updatePlayerCountOptions() {
+                const core = this.coreSelect.value;
+                this.playerCountSelect.innerHTML = '<option value="">Players</option>';
+
+                if (core && this.gamePresets[core]) {
+                    const playerCounts = Object.keys(this.gamePresets[core]).sort((a, b) => {
+                        return parseInt(b) - parseInt(a); // Sort descending (8p, 5p, 4p, 3p, 2p)
+                    });
+                    for (const pc of playerCounts) {
+                        const opt = document.createElement('option');
+                        opt.value = pc;
+                        opt.textContent = pc;
+                        this.playerCountSelect.appendChild(opt);
+                    }
+                    this.playerCountSelect.disabled = false;
+                } else {
+                    this.playerCountSelect.disabled = true;
+                }
+
+                this.gameSelect.innerHTML = '<option value="">Select Game</option>';
+                this.gameSelect.disabled = true;
+            }
+
+            updateGameOptions() {
+                const core = this.coreSelect.value;
+                const playerCount = this.playerCountSelect.value;
+                this.gameSelect.innerHTML = '<option value="">Select Game</option>';
+
+                if (core && playerCount && this.gamePresets[core]?.[playerCount]) {
+                    const games = this.gamePresets[core][playerCount];
+                    for (const game of games) {
+                        const opt = document.createElement('option');
+                        opt.value = game.rom;
+                        opt.textContent = game.name;
+                        this.gameSelect.appendChild(opt);
+                    }
+                    this.gameSelect.disabled = false;
+                } else {
+                    this.gameSelect.disabled = true;
                 }
             }
 
             setupEventListeners() {
+                this.allGamesSelect.onchange = () => {
+                    if (this.allGamesSelect.value) {
+                        const { rom, core, playerCount } = JSON.parse(this.allGamesSelect.value);
+                        // Update filtered dropdowns to match
+                        this.coreSelect.value = core;
+                        this.updatePlayerCountOptions();
+                        this.playerCountSelect.value = playerCount;
+                        this.updateGameOptions();
+                        this.gameSelect.value = rom;
+                        this.applySelectedGame();
+                    } else {
+                        this.clearManualInputs();
+                    }
+                    this.updateStartButtonState();
+                };
+
+                this.coreSelect.onchange = () => {
+                    this.allGamesSelect.value = '';
+                    this.updatePlayerCountOptions();
+                    this.clearManualInputs();
+                    this.updateStartButtonState();
+                };
+
+                this.playerCountSelect.onchange = () => {
+                    this.allGamesSelect.value = '';
+                    this.updateGameOptions();
+                    this.clearManualInputs();
+                    this.updateStartButtonState();
+                };
+
+                this.gameSelect.onchange = () => {
+                    if (this.gameSelect.value) {
+                        this.allGamesSelect.value = '';
+                        this.applySelectedGame();
+                    } else {
+                        this._currentRomSource = this._currentParentRomSource = this._currentBiosSource = null;
+                        this.romUrlInput.value = this.biosUrlInput.value = '';
+                    }
+                    this.updateStartButtonState();
+                };
+
                 this.uploadButton.onclick = () => this.fileInput.click();
                 this.biosUploadButton.onclick = () => this.biosFileInput.click();
 
@@ -319,7 +441,12 @@
                     this._currentBiosSource = null;
                     this.romUrlInput.value = file.name;
                     this.biosUrlInput.value = '';
-                    this.presetSelect.value = '';
+                    this.allGamesSelect.value = '';
+                    this.coreSelect.value = '';
+                    this.playerCountSelect.value = '';
+                    this.playerCountSelect.disabled = true;
+                    this.gameSelect.value = '';
+                    this.gameSelect.disabled = true;
                     this.consoleSelect.value = '';
                     this.startButton.disabled = true;
                     const ext = file.name.split('.').pop().toLowerCase();
@@ -345,7 +472,12 @@
                         this._currentParentRomSource = null;
                         this._currentBiosSource = null;
                         this.biosUrlInput.value = '';
-                        this.presetSelect.value = '';
+                        this.allGamesSelect.value = '';
+                        this.coreSelect.value = '';
+                        this.playerCountSelect.value = '';
+                        this.playerCountSelect.disabled = true;
+                        this.gameSelect.value = '';
+                        this.gameSelect.disabled = true;
                         const ext = url.split('/').pop().split('?')[0].split('.').pop().toLowerCase();
                         const core = this.detectCore(ext);
                         if (core) this.consoleSelect.value = core;
@@ -365,16 +497,6 @@
 
                 this.gameHeightSelect.onchange = (e) => {
                     this._currentGameHeight = e.target.value;
-                };
-
-                this.presetSelect.onchange = (e) => {
-                    if (e.target.value) {
-                        this.applyPreset(e.target.value);
-                    } else {
-                        this._currentRomSource = this._currentParentRomSource = this._currentBiosSource = null;
-                        this.romUrlInput.value = this.biosUrlInput.value = this.consoleSelect.value = '';
-                        this.updateStartButtonState();
-                    }
                 };
 
                 this.startButton.onclick = () => {
@@ -424,11 +546,41 @@
                 };
             }
 
+            clearManualInputs() {
+                this.romUrlInput.value = '';
+                this.biosUrlInput.value = '';
+                this._currentRomSource = null;
+                this._currentParentRomSource = null;
+                this._currentBiosSource = null;
+            }
+
+            applySelectedGame() {
+                const core = this.coreSelect.value;
+                const playerCount = this.playerCountSelect.value;
+                const romPath = this.gameSelect.value;
+
+                if (!core || !playerCount || !romPath) return;
+
+                const games = this.gamePresets[core]?.[playerCount];
+                const game = games?.find(g => g.rom === romPath);
+                if (!game) return;
+
+                this.romUrlInput.value = game.rom;
+                this.biosUrlInput.value = game.bios || '';
+                this._currentRomSource = game.rom;
+                this._currentParentRomSource = game.parentRom || null;
+                this._currentBiosSource = game.bios || null;
+                this.consoleSelect.value = core;
+                this.updateStartButtonState();
+            }
+
             updateManualConfigVisibility() {
                 if (!this.container) return;
                 if (!this._showManualConfig) {
                     this.container.classList.add('preset-only');
-                    this.shadowRoot.querySelector('.or-separator').style.display = 'none';
+                    // Hide all or-separators except the first one (filter by)
+                    const separators = this.shadowRoot.querySelectorAll('.or-separator');
+                    separators.forEach((sep, i) => { if (i > 0) sep.style.display = 'none'; });
                     this.romUrlInput.style.display = 'none';
                     this.uploadButton.style.display = 'none';
                     this.biosUrlInput.style.display = 'none';
@@ -450,20 +602,6 @@
                 this.startButton.disabled = !hasRom || !hasCore || !connected;
             }
 
-            applyPreset(key) {
-                const preset = this.gamePresets.find(p => p[0] === key);
-                if (!preset) return;
-                const [, , rom, core, bios, parentRom] = preset;
-                this.romUrlInput.value = rom;
-                this.biosUrlInput.value = bios || '';
-                this._currentRomSource = rom;
-                this._currentParentRomSource = parentRom || null;
-                this._currentBiosSource = bios || null;
-                this.consoleSelect.value = core;
-                this.updateStartButtonState();
-            }
-
-            // Inline core detection
             detectCore(ext) {
                 const map = {
                     nes: 'nes', fds: 'nes', unif: 'nes', unf: 'nes',
@@ -484,13 +622,14 @@
                 if (el) el.textContent = text;
             }
             setWebSocket(ws) { this._ws = ws; this.updateConnectionStatus(); }
-            // Alias for backwards compatibility
             setPeerConnection(conn) { this.setWebSocket(conn); }
 
             updateConnectionStatus() {
                 if (this._mode !== 'controller') return;
                 const connected = this._ws?.readyState === WebSocket.OPEN;
-                this.presetSelect.disabled = !connected;
+                this.coreSelect.disabled = !connected;
+                this.playerCountSelect.disabled = !connected;
+                this.gameSelect.disabled = !connected;
                 this.romUrlInput.disabled = !connected;
                 this.biosUrlInput.disabled = !connected;
                 this.consoleSelect.disabled = !connected;
