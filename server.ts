@@ -311,17 +311,36 @@ serve({
       }
 
       if (msg.type === "register-controller") {
-        const { controllerId, screenId } = msg;
+        const { controllerId, screenId, requestedPlayerNum } = msg;
         if (!controllerId || !screenId) { ws.send(JSON.stringify({ type: "error", error: "Missing controllerId or screenId" })); return; }
         const screenWs = screens.get(screenId);
         if (!screenWs) { ws.send(JSON.stringify({ type: "error", error: "Screen not found" })); return; }
+
         const existing = controllers.get(controllerId);
-        const playerNum = existing?.screenId === screenId ? existing.playerNum : getNextPlayerNumber(screenId);
+        let playerNum: number;
+
+        // Check if a specific player slot was requested
+        if (typeof requestedPlayerNum === 'number' && requestedPlayerNum >= 0 && requestedPlayerNum < 4) {
+          // Check if this slot is already taken by another controller
+          const slotTaken = Array.from(controllers.entries()).some(
+            ([id, ctrl]) => ctrl.screenId === screenId && ctrl.playerNum === requestedPlayerNum && id !== controllerId
+          );
+          if (slotTaken) {
+            console.log(`Controller ${controllerId} rejected: Player ${requestedPlayerNum + 1} slot already taken on screen ${screenId}`);
+            ws.send(JSON.stringify({ type: "error", error: "Player slot already taken", code: "player-slot-taken", requestedPlayer: requestedPlayerNum + 1 }));
+            return;
+          }
+          playerNum = requestedPlayerNum;
+        } else {
+          // Auto-assign next available slot
+          playerNum = existing?.screenId === screenId ? existing.playerNum : getNextPlayerNumber(screenId);
+        }
+
         controllers.set(controllerId, { ws, screenId, playerNum });
         wsData.id = controllerId;
         wsData.type = "controller";
         wsData.screenId = screenId;
-        console.log(`Controller registered: ${controllerId} -> screen ${screenId} (Player ${playerNum + 1})`);
+        console.log(`Controller registered: ${controllerId} -> screen ${screenId} (Player ${playerNum + 1})${typeof requestedPlayerNum === 'number' ? ' [requested]' : ''}`);
         ws.send(JSON.stringify({ type: "registered", controllerId, playerNum }));
         screenWs.send(JSON.stringify({ type: "controller-connected", controllerId, playerNum }));
         return;

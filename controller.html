@@ -38,6 +38,7 @@
         .status-dot.player-1 { background: #2196F3; box-shadow: 0 0 15px rgba(33, 150, 243, 0.6); }
         .status-dot.player-2 { background: #9C27B0; box-shadow: 0 0 15px rgba(156, 39, 176, 0.6); }
         .status-dot.player-3 { background: #FFC107; box-shadow: 0 0 15px rgba(255, 193, 7, 0.6); }
+        .status-dot.error { background: #f44336; box-shadow: 0 0 15px rgba(244, 67, 54, 0.6); }
         .status-dot.p2p::after { content: ''; position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; background: #00ff00; border-radius: 50%; }
         @keyframes blink { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
         @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.9; } }
@@ -130,6 +131,7 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const screenId = urlParams.get('screen');
+        const requestedPlayer = urlParams.get('p') ? parseInt(urlParams.get('p'), 10) : null;
 
         // Generate unique controller ID per session (new tab = new player)
         const controllerId = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
@@ -175,8 +177,6 @@
                 txView.setUint32(1, performance.now() | 0, false);
                 txView.setUint16(5, currentRtt, true);
                 inputChannel.send(new Uint8Array(txBuf, 0, 7));
-                updatePingDisplay(currentRtt);
-                console.log('[WebRTC] RTT:', currentRtt, 'ms');
             };
 
             pc.onicecandidate = e => {
@@ -241,9 +241,10 @@
             if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         }
 
-        function updateStatus(state, playerNum = null) {
+        function updateStatus(state, playerNum = null, errorMsg = null) {
             const playerStatus = document.getElementById('playerStatus');
             const dot = document.getElementById('statusDot');
+            const badge = document.getElementById('pingBadge');
             dot.className = 'status-dot ' + state;
             document.body.className = '';
             if (state === 'connected' && playerNum !== null) {
@@ -251,8 +252,15 @@
                 dot.textContent = `P${playerNum + 1}`;
                 document.body.classList.add('connected', `player-${playerNum}`);
                 playerStatus.classList.add('visible');
+                badge.textContent = '';
             } else if (state === 'connecting') {
                 dot.textContent = '';
+                badge.textContent = '';
+                playerStatus.classList.add('visible');
+            } else if (state === 'error') {
+                dot.textContent = '✕';
+                if (errorMsg) badge.textContent = errorMsg;
+                badge.className = 'ping-badge ping-bad';
                 playerStatus.classList.add('visible');
             } else {
                 playerStatus.classList.remove('visible');
@@ -277,8 +285,12 @@
             ws = new WebSocket(getWebSocketUrl());
 
             ws.onopen = () => {
-                console.log('WebSocket connected, registering as controller:', controllerId, 'for screen:', screenId);
-                ws.send(JSON.stringify({ type: 'register-controller', controllerId, screenId }));
+                console.log('WebSocket connected, registering as controller:', controllerId, 'for screen:', screenId, requestedPlayer !== null ? `(requesting P${requestedPlayer})` : '');
+                const registerMsg = { type: 'register-controller', controllerId, screenId };
+                if (requestedPlayer !== null && requestedPlayer >= 1 && requestedPlayer <= 4) {
+                    registerMsg.requestedPlayerNum = requestedPlayer - 1; // Convert to 0-indexed
+                }
+                ws.send(JSON.stringify(registerMsg));
 
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = setInterval(() => {
@@ -319,6 +331,13 @@
 
                 case 'error':
                     console.error('Server error:', msg.error);
+                    if (msg.code === 'player-slot-taken') {
+                        // Player slot already taken - show message and don't reconnect
+                        updateStatus('error', null, `P${msg.requestedPlayer} taken`);
+                        clearInterval(heartbeatInterval);
+                        ws.close();
+                        ws = null;
+                    }
                     break;
 
                 case 'screen-disconnected':
