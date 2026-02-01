@@ -411,49 +411,31 @@
             const ts = view.getUint32(1, false);
             const peer = peers.get(controllerId);
 
+            // Ping report (methodId=0)
             if (methodId === 0) {
-                // Ping report: update RTT display
-                const rtt = view.getUint16(5, true);
-                if (peer) peer.rtt = rtt;
+                if (peer) peer.rtt = view.getUint16(5, true);
                 updateControllerDisplay();
-            } else if (methodId === 1) {
-                // Digital input: echo timestamp back for RTT, then execute
-                if (peer?.channel?.readyState === 'open') {
-                    echoBuf[0] = ts;
-                    peer.channel.send(echoBuf.buffer);
-                }
+                return;
+            }
 
-                if (currentState === State.PLAYING && EJS_emulator?.handler) {
-                    const button = view.getUint8(5);
-                    const state = view.getUint8(6);
-                    const player = peer?.playerNum ?? 0;
-                    try {
-                        EJS_emulator.handler.exec('input.simulate', {
-                            button, player,
-                            state: state === 1 ? 'pressed' : 'released',
-                            value: state
-                        });
-                    } catch (e) { console.error('P2P input error:', e); }
-                }
-            } else if (methodId === 2) {
-                // Analog input: echo timestamp back for RTT, then execute with analog value
-                if (peer?.channel?.readyState === 'open') {
-                    echoBuf[0] = ts;
-                    peer.channel.send(echoBuf.buffer);
-                }
+            // Input messages (1=digital, 2=analog) - echo timestamp for RTT
+            if (peer?.channel?.readyState === 'open') {
+                echoBuf[0] = ts;
+                peer.channel.send(echoBuf.buffer);
+            }
 
-                if (currentState === State.PLAYING && EJS_emulator?.handler) {
-                    const button = view.getUint8(5);
-                    const analogValue = view.getUint16(6, true); // little-endian uint16
-                    const player = peer?.playerNum ?? 0;
-                    try {
-                        EJS_emulator.handler.exec('input.simulate', {
-                            button, player,
-                            state: 'analog',
-                            value: analogValue
-                        });
-                    } catch (e) { console.error('P2P analog input error:', e); }
-                }
+            if (currentState !== State.PLAYING || !EJS_emulator?.handler) return;
+
+            const button = view.getUint8(5);
+            const player = peer?.playerNum ?? 0;
+            const isAnalog = methodId === 2;
+            const value = isAnalog ? view.getUint16(6, true) : view.getUint8(6);
+            const state = isAnalog ? 'analog' : (value === 1 ? 'pressed' : 'released');
+
+            try {
+                EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
+            } catch (e) {
+                console.error('P2P input error:', e);
             }
         }
 
