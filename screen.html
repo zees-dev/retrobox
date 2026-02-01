@@ -126,6 +126,33 @@
         const echoBuf = new Uint32Array(1); // Pre-allocated echo buffer (Worker 3 pattern)
         let iceCandidateBuffers = new Map(); // controllerId -> [candidates]
 
+        // P2P Method IDs
+        const P2P_PING = 0, P2P_DIGITAL = 1, P2P_ANALOG = 2;
+        const P2P_TOGGLE_FPS = 3, P2P_SAVE_STATE = 4, P2P_LOAD_STATE = 5;
+        const P2P_RESET_MENU = 6, P2P_HARD_REFRESH = 7;
+        const P2P_STATE_UPDATE = 129;
+
+        // P2P stateUpdate sender
+        const stateUpdateBuf = new ArrayBuffer(256);
+        const stateUpdateBytes = new Uint8Array(stateUpdateBuf);
+        const textEncoder = new TextEncoder();
+
+        function sendP2PStateUpdate(peer, stateEnum, isPaused, core, gameName) {
+            if (peer?.channel?.readyState !== 'open') return false;
+            let o = 0;
+            stateUpdateBytes[o++] = P2P_STATE_UPDATE;
+            stateUpdateBytes[o++] = stateEnum;
+            stateUpdateBytes[o++] = isPaused ? 1 : 0;
+            const coreBytes = core ? textEncoder.encode(core) : null;
+            stateUpdateBytes[o++] = coreBytes?.length || 0;
+            if (coreBytes) { stateUpdateBytes.set(coreBytes, o); o += coreBytes.length; }
+            const nameBytes = gameName ? textEncoder.encode(gameName) : null;
+            stateUpdateBytes[o++] = nameBytes?.length || 0;
+            if (nameBytes) { stateUpdateBytes.set(nameBytes, o); o += nameBytes.length; }
+            peer.channel.send(new Uint8Array(stateUpdateBuf, 0, o));
+            return true;
+        }
+
         // ============================================
         // STATE MANAGEMENT
         // ============================================
@@ -142,6 +169,14 @@
         }
 
         function broadcastToControllers(msg) {
+            // Send stateUpdate via P2P for low latency
+            if (msg.type === 'stateUpdate') {
+                const stateEnum = msg.state === 'game-selection' ? 0 : msg.state === 'game-pending' ? 1 : 2;
+                for (const [, peer] of peers) {
+                    sendP2PStateUpdate(peer, stateEnum, msg.isPaused, msg.core, msg.gameName);
+                }
+            }
+            // Always also send via WS (fallback for controllers without P2P)
             if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         }
 
@@ -437,17 +472,27 @@
         function handleP2PMessage(controllerId, data) {
             const view = new DataView(data);
             const methodId = view.getUint8(0);
-            const ts = view.getUint32(1, false);
             const peer = peers.get(controllerId);
 
-            // Ping report (methodId=0)
-            if (methodId === 0) {
-                if (peer) peer.rtt = view.getUint16(5, true);
-                updateControllerDisplay();
-                return;
+            switch (methodId) {
+                case P2P_PING:
+                    if (peer) peer.rtt = view.getUint16(5, true);
+                    updateControllerDisplay();
+                    return;
+                case P2P_TOGGLE_FPS: toggleFPS(); return;
+                case P2P_SAVE_STATE: saveState(view.byteLength > 1 ? view.getUint8(1) : 1); return;
+                case P2P_LOAD_STATE: loadState(view.byteLength > 1 ? view.getUint8(1) : 1); return;
+                case P2P_RESET_MENU: resetToGameMenu(); return;
+                case P2P_HARD_REFRESH: window.location.reload(); return;
+                case P2P_DIGITAL:
+                case P2P_ANALOG:
+                    break; // Fall through to input handling
+                default:
+                    return; // Unknown method
             }
 
             // Input messages (1=digital, 2=analog) - echo timestamp for RTT
+            const ts = view.getUint32(1, false);
             if (peer?.channel?.readyState === 'open') {
                 echoBuf[0] = ts;
                 peer.channel.send(echoBuf.buffer);
@@ -457,7 +502,7 @@
 
             const button = view.getUint8(5);
             const player = peer?.playerNum ?? 0;
-            const isAnalog = methodId === 2;
+            const isAnalog = methodId === P2P_ANALOG;
             const value = isAnalog ? view.getUint16(6, true) : view.getUint8(6);
             const state = isAnalog ? 'analog' : (value === 1 ? 'pressed' : 'released');
 
