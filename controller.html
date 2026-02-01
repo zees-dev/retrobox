@@ -104,38 +104,161 @@
 
         // Console log capture for mobile debugging
         const _logs = [];
-        const _maxLogs = 200;
-        const _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+        const _maxLogs = 500;
+        const _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info, debug: console.debug, trace: console.trace };
+
+        function _formatArg(a, seen = new WeakSet()) {
+            if (a === null) return 'null';
+            if (a === undefined) return 'undefined';
+            if (typeof a === 'function') return `[Function: ${a.name || 'anonymous'}]`;
+            if (typeof a === 'symbol') return a.toString();
+            if (a instanceof Error) {
+                return a.stack || `${a.name}: ${a.message}`;
+            }
+            if (typeof a === 'object') {
+                if (seen.has(a)) return '[Circular]';
+                seen.add(a);
+                try {
+                    if (Array.isArray(a)) {
+                        return '[' + a.map(x => _formatArg(x, seen)).join(', ') + ']';
+                    }
+                    const pairs = Object.entries(a).slice(0, 50).map(([k, v]) => `${k}: ${_formatArg(v, seen)}`);
+                    return '{' + pairs.join(', ') + (Object.keys(a).length > 50 ? ', ...' : '') + '}';
+                } catch { return String(a); }
+            }
+            return String(a);
+        }
+
         function _captureLog(type, args) {
-            const time = new Date().toTimeString().slice(0,8);
-            const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            const time = new Date().toTimeString().slice(0, 8);
+            const msg = Array.from(args).map(a => _formatArg(a)).join(' ');
             _logs.push({ time, type, msg });
             if (_logs.length > _maxLogs) _logs.shift();
         }
+
         console.log = (...args) => { _captureLog('log', args); _origConsole.log(...args); };
         console.warn = (...args) => { _captureLog('warn', args); _origConsole.warn(...args); };
         console.error = (...args) => { _captureLog('error', args); _origConsole.error(...args); };
         console.info = (...args) => { _captureLog('info', args); _origConsole.info(...args); };
+        console.debug = (...args) => { _captureLog('debug', args); _origConsole.debug(...args); };
+        console.trace = (...args) => {
+            _captureLog('trace', [...args, '\n' + new Error().stack?.split('\n').slice(2).join('\n')]);
+            _origConsole.trace(...args);
+        };
 
-        // Debug modal
+        // Capture uncaught errors and unhandled promise rejections
+        window.addEventListener('error', (e) => {
+            const time = new Date().toTimeString().slice(0, 8);
+            const msg = e.error?.stack || `${e.message} at ${e.filename}:${e.lineno}:${e.colno}`;
+            _logs.push({ time, type: 'error', msg: `[Uncaught] ${msg}` });
+            if (_logs.length > _maxLogs) _logs.shift();
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            const time = new Date().toTimeString().slice(0, 8);
+            const reason = e.reason instanceof Error ? (e.reason.stack || e.reason.message) : String(e.reason);
+            _logs.push({ time, type: 'error', msg: `[Unhandled Promise] ${reason}` });
+            if (_logs.length > _maxLogs) _logs.shift();
+        });
+
+        // Debug modal with tabs (Controller Logs | Screen Logs)
+        window._receivedScreenLogs = [];
+        window._screenDebugMode = false;
+        window._updateScreenLogsTab = null;
+
         function showDebugModal() {
             let modal = document.getElementById('debugModal');
-            if (modal) { modal.remove(); return; }
+            if (modal) { modal.remove(); window._updateScreenLogsTab = null; return; }
             modal = document.createElement('div');
             modal.id = 'debugModal';
             modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:100000;display:flex;flex-direction:column;padding:10px;';
+
+            let activeTab = 'controller';
+            window._receivedScreenLogs = [];
+
+            let wordWrap = false;
+
+            function renderLogs(logs, emptyMsg) {
+                if (!logs || logs.length === 0) return `<div style="color:#666;">${emptyMsg}</div>`;
+                const colors = { error: '#f44336', warn: '#FF9800', info: '#2196F3', debug: '#9E9E9E', trace: '#9575CD', log: '#4CAF50' };
+                const wrapStyle = wordWrap ? 'word-break:break-all;white-space:pre-wrap;' : 'white-space:pre;';
+                return logs.map(l => {
+                    const color = colors[l.type] || '#4CAF50';
+                    const escaped = l.msg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+                    return `<div style="color:${color};margin:2px 0;${wrapStyle}"><span style="color:#888;">[${l.time}]</span> <span style="color:#666;font-size:10px;">${l.type.toUpperCase()}</span> ${escaped}</div>`;
+                }).join('');
+            }
+
+            function updateContent() {
+                const content = modal.querySelector('#logContent');
+                const countSpan = modal.querySelector('#logCount');
+                const statusSpan = modal.querySelector('#debugStatus');
+                if (activeTab === 'controller') {
+                    content.innerHTML = renderLogs(_logs, 'No controller logs yet');
+                    countSpan.textContent = _logs.length;
+                    statusSpan.textContent = '';
+                } else {
+                    const logs = window._receivedScreenLogs || [];
+                    content.innerHTML = renderLogs(logs, window._screenDebugMode ? 'No screen logs yet' : 'Debug Logs is disabled on screen.\nEnable it in Settings to start capturing.');
+                    countSpan.textContent = logs.length;
+                    statusSpan.textContent = window._screenDebugMode ? '' : ' (off)';
+                }
+                content.scrollTop = content.scrollHeight;
+            }
+
+            function updateWrapButton() {
+                const btn = modal.querySelector('#wrapToggle');
+                if (btn) {
+                    btn.style.background = wordWrap ? 'rgba(76,175,80,0.3)' : 'rgba(255,255,255,0.1)';
+                    btn.style.borderColor = wordWrap ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.2)';
+                    btn.title = wordWrap ? 'Word wrap: ON' : 'Word wrap: OFF';
+                }
+            }
+
+            window._updateScreenLogsTab = updateContent;
+
+            const tabBase = 'flex:1;padding:10px;border:none;font-size:13px;cursor:pointer;';
+            const tabActiveController = tabBase + 'background:#333;border-bottom:2px solid #4CAF50;color:#fff;border-radius:4px 0 0 0;';
+            const tabInactiveController = tabBase + 'background:transparent;border-bottom:2px solid transparent;color:#888;border-radius:4px 0 0 0;';
+            const tabActiveScreen = tabBase + 'background:#333;border-bottom:2px solid #1AAFFF;color:#fff;border-radius:0 4px 0 0;';
+            const tabInactiveScreen = tabBase + 'background:transparent;border-bottom:2px solid transparent;color:#888;border-radius:0 4px 0 0;';
+
+            function setTab(tab) {
+                activeTab = tab;
+                modal.querySelector('#tabController').style.cssText = tab === 'controller' ? tabActiveController : tabInactiveController;
+                modal.querySelector('#tabScreen').style.cssText = tab === 'screen' ? tabActiveScreen : tabInactiveScreen;
+                if (tab === 'screen') {
+                    // Request screen logs via WebSocket
+                    if (typeof wsManager !== 'undefined' && wsManager?.isOpen) {
+                        wsManager.send({ type: 'getScreenLogs' });
+                    }
+                }
+                updateContent();
+            }
+
             modal.innerHTML = `
                 <div style="color:#fff;font-size:14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-                    <span>📋 Console Logs (${_logs.length})</span>
-                    <button onclick="document.getElementById('debugModal').remove()" style="background:#f44336;border:none;color:#fff;padding:8px 16px;border-radius:4px;font-size:14px;">Close</button>
+                    <span>📋 Logs (<span id="logCount">${_logs.length}</span>)<span id="debugStatus" style="color:#888;font-size:11px;"></span></span>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button id="wrapToggle" title="Word wrap: OFF" style="width:32px;height:32px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4l2-2m-2 2l2 2M3 18h7"/></svg>
+                        </button>
+                        <button onclick="document.getElementById('debugModal').remove();window._updateScreenLogsTab=null;" style="background:#f44336;border:none;color:#fff;padding:8px 16px;border-radius:4px;font-size:14px;">Close</button>
+                    </div>
                 </div>
-                <div style="flex:1;overflow:auto;background:#111;border-radius:4px;padding:8px;font-family:monospace;font-size:11px;user-select:text;-webkit-user-select:text;">
-                    ${_logs.map(l => `<div style="color:${l.type==='error'?'#f44336':l.type==='warn'?'#FF9800':'#4CAF50'};margin:2px 0;word-break:break-all;"><span style="color:#888;">[${l.time}]</span> ${l.msg}</div>`).join('')||'<div style="color:#666;">No logs yet</div>'}
+                <div style="display:flex;gap:0;margin-bottom:10px;">
+                    <button id="tabController" style="${tabActiveController}">Controller</button>
+                    <button id="tabScreen" style="${tabInactiveScreen}">Screen</button>
+                </div>
+                <div id="logContent" style="flex:1;overflow:auto;background:#111;border-radius:4px;padding:8px;font-family:monospace;font-size:11px;user-select:text;-webkit-user-select:text;">
+                    ${renderLogs(_logs, 'No controller logs yet')}
                 </div>
             `;
-            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+            modal.querySelector('#tabController').onclick = () => setTab('controller');
+            modal.querySelector('#tabScreen').onclick = () => setTab('screen');
+            modal.querySelector('#wrapToggle').onclick = () => { wordWrap = !wordWrap; updateWrapButton(); updateContent(); };
+            modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); window._updateScreenLogsTab = null; } });
             document.body.appendChild(modal);
-            modal.querySelector('div[style*="overflow"]').scrollTop = 99999;
+            modal.querySelector('#logContent').scrollTop = 99999;
         }
 
         // Long-press handler for player status
@@ -284,6 +407,8 @@
         // STATE
         // ============================================
         let wsManager = null;
+        // Expose wsManager for debug modal access
+        Object.defineProperty(window, 'wsManager', { get: () => wsManager });
         let playerNumber = null;
         let emulatorLoaded = false;
         let currentCore = null;
@@ -564,7 +689,7 @@
                     break;
 
                 case 'menuSettingsSync':
-                    // Apply menu settings (gameHeight, threads) from screen to game-menu
+                    // Apply menu settings (gameHeight, threads, debugMode) from screen to game-menu
                     if (msg.settings && gameMenu) {
                         if (msg.settings.gameHeight != null) {
                             gameMenu.applySetting('gameHeight', msg.settings.gameHeight);
@@ -572,7 +697,19 @@
                         if (msg.settings.threads != null) {
                             gameMenu.applySetting('threads', msg.settings.threads);
                         }
+                        if (msg.settings.debugMode != null) {
+                            gameMenu.applySetting('debugMode', msg.settings.debugMode);
+                        }
                         console.log('Menu settings synced from screen:', msg.settings);
+                    }
+                    break;
+
+                case 'screenLogs':
+                    // Received screen logs - store them and update modal if open
+                    window._receivedScreenLogs = msg.logs || [];
+                    window._screenDebugMode = msg.debugMode;
+                    if (typeof window._updateScreenLogsTab === 'function') {
+                        window._updateScreenLogsTab();
                     }
                     break;
             }

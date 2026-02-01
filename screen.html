@@ -16,6 +16,74 @@
                 }
             };
         }
+
+        // Console log capture for debug mode (screen logs sent to controller)
+        const _screenLogs = [];
+        const _maxScreenLogs = 500;
+        let _debugModeEnabled = localStorage.getItem('retrobox_debugMode') === 'true';
+        const _origScreenConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info, debug: console.debug, trace: console.trace };
+
+        function _formatArg(a, seen = new WeakSet()) {
+            if (a === null) return 'null';
+            if (a === undefined) return 'undefined';
+            if (typeof a === 'function') return `[Function: ${a.name || 'anonymous'}]`;
+            if (typeof a === 'symbol') return a.toString();
+            if (a instanceof Error) {
+                return a.stack || `${a.name}: ${a.message}`;
+            }
+            if (typeof a === 'object') {
+                if (seen.has(a)) return '[Circular]';
+                seen.add(a);
+                try {
+                    if (Array.isArray(a)) {
+                        return '[' + a.map(x => _formatArg(x, seen)).join(', ') + ']';
+                    }
+                    const pairs = Object.entries(a).slice(0, 50).map(([k, v]) => `${k}: ${_formatArg(v, seen)}`);
+                    return '{' + pairs.join(', ') + (Object.keys(a).length > 50 ? ', ...' : '') + '}';
+                } catch { return String(a); }
+            }
+            return String(a);
+        }
+
+        function _captureScreenLog(type, args) {
+            if (!_debugModeEnabled) return;
+            const time = new Date().toTimeString().slice(0, 8);
+            const msg = Array.from(args).map(a => _formatArg(a)).join(' ');
+            _screenLogs.push({ time, type, msg });
+            if (_screenLogs.length > _maxScreenLogs) _screenLogs.shift();
+        }
+
+        console.log = (...args) => { _captureScreenLog('log', args); _origScreenConsole.log(...args); };
+        console.warn = (...args) => { _captureScreenLog('warn', args); _origScreenConsole.warn(...args); };
+        console.error = (...args) => { _captureScreenLog('error', args); _origScreenConsole.error(...args); };
+        console.info = (...args) => { _captureScreenLog('info', args); _origScreenConsole.info(...args); };
+        console.debug = (...args) => { _captureScreenLog('debug', args); _origScreenConsole.debug(...args); };
+        console.trace = (...args) => {
+            _captureScreenLog('trace', [...args, '\n' + new Error().stack?.split('\n').slice(2).join('\n')]);
+            _origScreenConsole.trace(...args);
+        };
+
+        // Capture uncaught errors and unhandled promise rejections
+        window.addEventListener('error', (e) => {
+            if (!_debugModeEnabled) return;
+            const time = new Date().toTimeString().slice(0, 8);
+            const msg = e.error?.stack || `${e.message} at ${e.filename}:${e.lineno}:${e.colno}`;
+            _screenLogs.push({ time, type: 'error', msg: `[Uncaught] ${msg}` });
+            if (_screenLogs.length > _maxScreenLogs) _screenLogs.shift();
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            if (!_debugModeEnabled) return;
+            const time = new Date().toTimeString().slice(0, 8);
+            const reason = e.reason instanceof Error ? (e.reason.stack || e.reason.message) : String(e.reason);
+            _screenLogs.push({ time, type: 'error', msg: `[Unhandled Promise] ${reason}` });
+            if (_screenLogs.length > _maxScreenLogs) _screenLogs.shift();
+        });
+
+        function _setDebugMode(enabled) {
+            _debugModeEnabled = enabled;
+            if (!enabled) _screenLogs.length = 0; // Clear buffer when disabled
+        }
+        function _getScreenLogs() { return _screenLogs.slice(); }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
@@ -335,10 +403,27 @@
                     break;
 
                 case 'menuSetting':
-                    // Apply menu setting from controller (gameHeight, threads) and persist
+                    // Apply menu setting from controller (gameHeight, threads, debugMode) and persist
                     if (msg.setting && gameMenu) {
                         gameMenu.applySetting(msg.setting, msg.value);
                         console.log('Menu setting applied from controller:', msg.setting, '=', msg.value);
+                        // Update debug mode state for log buffering
+                        if (msg.setting === 'debugMode') {
+                            _setDebugMode(msg.value === true || msg.value === 'true');
+                        }
+                    }
+                    break;
+
+                case 'getScreenLogs':
+                    // Send screen logs to requesting controller
+                    if (msg.controllerId) {
+                        wsManager?.send({
+                            type: 'screenLogs',
+                            targetController: msg.controllerId,
+                            logs: _getScreenLogs(),
+                            debugMode: _debugModeEnabled
+                        });
+                        console.log('Sent screen logs to controller:', msg.controllerId, '(' + _getScreenLogs().length + ' logs)');
                     }
                     break;
 
@@ -384,10 +469,11 @@
             // Send current menu settings to the newly connected controller
             const gameHeight = parseInt(localStorage.getItem('retrobox_gameHeight') || '100');
             const threads = localStorage.getItem('retrobox_threads') === 'true';
+            const debugMode = localStorage.getItem('retrobox_debugMode') === 'true';
             wsManager?.send({
                 type: 'menuSettingsSync',
                 targetController: controllerId,
-                settings: { gameHeight, threads }
+                settings: { gameHeight, threads, debugMode }
             });
         }
 
@@ -892,6 +978,11 @@
         // ============================================
         (async () => {
             gameMenu = await loadGameMenuComponent(loadROM, resetToGameMenu);
+            // Listen for debug mode changes from game-menu
+            gameMenu?.addEventListener('debugmodechange', (e) => {
+                _setDebugMode(e.detail.enabled);
+                console.log('Debug mode:', e.detail.enabled ? 'enabled' : 'disabled');
+            });
         })();
     </script>
 </body>

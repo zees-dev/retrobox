@@ -20,6 +20,7 @@
                 this._currentGameHeight = 100;
                 this._threads = false;
                 this._useUrl = false;
+                this._debugMode = false;
                 this._showingSettings = false;
                 this.gamePresets = {};
 
@@ -50,6 +51,7 @@
                 this.gameHeightValue = this.shadowRoot.getElementById('gameHeightValue');
                 this.threadsToggle = this.shadowRoot.getElementById('threadsToggle');
                 this.useUrlToggle = this.shadowRoot.getElementById('useUrlToggle');
+                this.debugModeToggle = this.shadowRoot.getElementById('debugModeToggle');
                 this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
                 this.presetSection = this.shadowRoot.getElementById('presetSection');
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
@@ -576,6 +578,19 @@
                                 </div>
                             </div>
 
+                            <div class="setting-row setting-persisted">
+                                <div class="toggle-row">
+                                    <div class="toggle-info">
+                                        <span class="setting-label">Debug Logs</span>
+                                        <span class="toggle-description">Buffer console logs for remote viewing</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="debugModeToggle">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <div class="setting-row">
                                 <div class="toggle-row">
                                     <div class="toggle-info">
@@ -969,6 +984,17 @@
                     this._useUrl = e.target.checked;
                     this.updateManualConfigVisibility();
                 };
+
+                // Debug mode toggle
+                this.debugModeToggle.onchange = (e) => {
+                    this._debugMode = e.target.checked;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_debugMode', e.target.checked);
+                    } else if (this._mode === 'controller') {
+                        this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'debugMode', value: e.target.checked }, bubbles: true }));
+                    }
+                    this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: e.target.checked }, bubbles: true }));
+                };
             }
 
             updateManualConfigVisibility() {
@@ -1007,6 +1033,15 @@
                     this._threads = savedThreads === 'true';
                     this.threadsToggle.checked = this._threads;
                 }
+
+                // Load debug mode setting
+                const savedDebugMode = localStorage.getItem('retrobox_debugMode');
+                if (savedDebugMode !== null) {
+                    this._debugMode = savedDebugMode === 'true';
+                    this.debugModeToggle.checked = this._debugMode;
+                    // Emit event so screen.html can start/stop buffering
+                    this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: this._debugMode }, bubbles: true }));
+                }
             }
 
             // Apply setting from external source (e.g., controller via WebSocket)
@@ -1025,6 +1060,13 @@
                     if (this._mode === 'screen') {
                         localStorage.setItem('retrobox_threads', this._threads);
                     }
+                } else if (setting === 'debugMode') {
+                    this._debugMode = value === true || value === 'true';
+                    this.debugModeToggle.checked = this._debugMode;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_debugMode', this._debugMode);
+                    }
+                    this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: this._debugMode }, bubbles: true }));
                 }
             }
 
