@@ -113,8 +113,9 @@
         .controller-dot .ping { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); font-size: 8px; color: rgba(255,255,255,0.5); white-space: nowrap; margin-top: 2px; font-family: monospace; }
         @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } }
 
-        .qr-container { position: fixed; top: 20px; left: 20px; z-index: 999; text-align: center; background: rgba(0, 0, 0, 0.9); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); transition: opacity 0.3s, transform 0.3s; display: flex; flex-direction: column; align-items: center; }
+        .qr-container { position: fixed; top: 20px; left: 20px; z-index: 999; text-align: center; background: rgba(0, 0, 0, 0.9); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); transition: opacity 0.3s, transform 0.3s, z-index 0s; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
         .qr-container.hidden { opacity: 0; transform: translateY(-20px); pointer-events: none; }
+        .qr-container.front { z-index: 1002; }
         .qr-code-display { background: white; padding: 10px; border-radius: 4px; display: inline-block; margin: 5px 0; }
         .qr-code-display img, .qr-code-display canvas { display: block; width: 100% !important; height: 100% !important; }
         .qr-text { color: rgba(255, 255, 255, 0.8); font-size: max(12px, min(2.5vw, 2.5vh)); margin-bottom: 8px; font-weight: 500; }
@@ -721,6 +722,18 @@
 
         function showQRCode() { document.getElementById('qrContainer').classList.remove('hidden'); }
         function hideQRCode() { document.getElementById('qrContainer').classList.add('hidden'); }
+
+        // Z-index management for QR and game menu overlap on mobile
+        function bringQRToFront() {
+            document.getElementById('qrContainer').classList.add('front');
+            document.getElementById('gameMenu')?.shadowRoot?.querySelector('.game-controls')?.classList.remove('front');
+        }
+        function bringMenuToFront() {
+            document.getElementById('qrContainer').classList.remove('front');
+            document.getElementById('gameMenu')?.shadowRoot?.querySelector('.game-controls')?.classList.add('front');
+        }
+        document.getElementById('qrContainer').addEventListener('click', bringQRToFront);
+        document.getElementById('gameMenu')?.addEventListener('click', bringMenuToFront);
 
         // ============================================
         // GAME LOADING
