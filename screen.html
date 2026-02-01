@@ -122,6 +122,33 @@
         let wsManager = null;
         let screenId = null;
         let loaderScript = null; // Track the loader script element
+        let wakeLock = null; // Wake lock to prevent screen off when controller connected
+
+        // Wake lock management
+        async function acquireWakeLock() {
+            if (wakeLock) return; // Already held
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Wake lock acquired - screen will stay on');
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake lock released');
+                    wakeLock = null;
+                });
+            } catch (e) {
+                console.log('Wake lock request failed:', e.message);
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (!wakeLock) return;
+            try {
+                await wakeLock.release();
+                wakeLock = null;
+                console.log('Wake lock manually released');
+            } catch (e) {
+                console.log('Wake lock release failed:', e.message);
+            }
+        }
 
         // ============================================
         // WEBRTC P2P STATE
@@ -354,6 +381,9 @@
                 peers.set(controllerId, { pc: null, channel: null, playerNum, rtt: 0, iceBuffer: new IceCandidateBuffer() });
             }
 
+            // Acquire wake lock when controller connects
+            acquireWakeLock();
+
             updateControllerDisplay();
             wsManager?.send({ ...getStateInfo(), targetController: controllerId });
         }
@@ -370,6 +400,11 @@
                 pendingRemoval.delete(controllerId);
                 updateControllerDisplay();
 
+
+                // Release wake lock when no controllers connected
+                if (peers.size === 0) {
+                    releaseWakeLock();
+                }
                 // Auto-pause when no controllers
                 if (peers.size === 0 && currentState === State.PLAYING && !isPaused) {
                     console.log('No controllers, pausing...');

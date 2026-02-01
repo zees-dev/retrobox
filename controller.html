@@ -8,24 +8,147 @@
         // Screen Wake Lock - keep screen on while controller is active
         let wakeLock = null;
         async function requestWakeLock() {
-            if (!('wakeLock' in navigator)) return;
+            if (!('wakeLock' in navigator)) {
+                console.log('Wake Lock not supported');
+                return;
+            }
             try {
+                if (wakeLock) return; // Already held
                 wakeLock = await navigator.wakeLock.request('screen');
-                wakeLock.addEventListener('release', () => console.log('Wake Lock released'));
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake Lock released');
+                    wakeLock = null;
+                });
                 console.log('Wake Lock acquired');
             } catch (e) {
                 console.log('Wake Lock error:', e.message);
             }
         }
-        // Request on load and re-acquire when page becomes visible
-        requestWakeLock();
+        // Re-acquire when page becomes visible (it auto-releases when hidden)
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') requestWakeLock();
+        });
+
+        // Pull-to-refresh - pull down anywhere on game selection screen to hard refresh
+        (function() {
+            let startY = 0, pulling = false, pullDist = 0;
+            const threshold = 120;
+            let indicator = null;
+
+            function createIndicator() {
+                indicator = document.createElement('div');
+                indicator.id = 'pullRefreshIndicator';
+                document.body.appendChild(indicator);
+            }
+
+            function isGameSelectionScreen() {
+                const gameMenu = document.getElementById('gameMenu');
+                return gameMenu && gameMenu.style.display !== 'none';
+            }
+
+            document.addEventListener('touchstart', e => {
+                if (window.scrollY === 0 && isGameSelectionScreen()) {
+                    startY = e.touches[0].clientY;
+                    pulling = true;
+                    pullDist = 0;
+                }
+            }, { passive: true });
+
+            document.addEventListener('touchmove', e => {
+                if (!pulling) return;
+                const y = e.touches[0].clientY;
+                pullDist = y - startY;
+                if (pullDist > 0) {
+                    if (!indicator) createIndicator();
+                    const progress = Math.min(pullDist / threshold, 1);
+                    indicator.style.transform = `translateX(-50%) translateY(${Math.min(pullDist * 0.5, 60) - 40}px)`;
+                    indicator.style.opacity = progress;
+                }
+            }, { passive: true });
+
+            document.addEventListener('touchend', () => {
+                if (!pulling) return;
+                pulling = false;
+                if (indicator) {
+                    if (pullDist >= threshold) {
+                        indicator.style.transform = 'translateX(-50%) translateY(10px)';
+                        indicator.classList.add('spinning');
+                        setTimeout(() => location.reload(), 300);
+                    } else {
+                        indicator.style.transform = 'translateX(-50%) translateY(-50px)';
+                        indicator.style.opacity = '0';
+                    }
+                }
+                startY = 0;
+                pullDist = 0;
+            }, { passive: true });
+        })();
+
+        // Console log capture for mobile debugging
+        const _logs = [];
+        const _maxLogs = 200;
+        const _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+        function _captureLog(type, args) {
+            const time = new Date().toTimeString().slice(0,8);
+            const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            _logs.push({ time, type, msg });
+            if (_logs.length > _maxLogs) _logs.shift();
+        }
+        console.log = (...args) => { _captureLog('log', args); _origConsole.log(...args); };
+        console.warn = (...args) => { _captureLog('warn', args); _origConsole.warn(...args); };
+        console.error = (...args) => { _captureLog('error', args); _origConsole.error(...args); };
+        console.info = (...args) => { _captureLog('info', args); _origConsole.info(...args); };
+
+        // Debug modal
+        function showDebugModal() {
+            let modal = document.getElementById('debugModal');
+            if (modal) { modal.remove(); return; }
+            modal = document.createElement('div');
+            modal.id = 'debugModal';
+            modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:100000;display:flex;flex-direction:column;padding:10px;';
+            modal.innerHTML = `
+                <div style="color:#fff;font-size:14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+                    <span>📋 Console Logs (${_logs.length})</span>
+                    <button onclick="document.getElementById('debugModal').remove()" style="background:#f44336;border:none;color:#fff;padding:8px 16px;border-radius:4px;font-size:14px;">Close</button>
+                </div>
+                <div style="flex:1;overflow:auto;background:#111;border-radius:4px;padding:8px;font-family:monospace;font-size:11px;user-select:text;-webkit-user-select:text;">
+                    ${_logs.map(l => `<div style="color:${l.type==='error'?'#f44336':l.type==='warn'?'#FF9800':'#4CAF50'};margin:2px 0;word-break:break-all;"><span style="color:#888;">[${l.time}]</span> ${l.msg}</div>`).join('')||'<div style="color:#666;">No logs yet</div>'}
+                </div>
+            `;
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+            document.body.appendChild(modal);
+            modal.querySelector('div[style*="overflow"]').scrollTop = 99999;
+        }
+
+        // Long-press handler for player status
+        let _longPressTimer = null;
+        document.addEventListener('DOMContentLoaded', () => {
+            const playerStatus = document.getElementById('playerStatus');
+            if (!playerStatus) return;
+            playerStatus.addEventListener('touchstart', (e) => {
+                _longPressTimer = setTimeout(showDebugModal, 1000);
+            }, { passive: true });
+            playerStatus.addEventListener('touchend', () => clearTimeout(_longPressTimer));
+            playerStatus.addEventListener('touchmove', () => clearTimeout(_longPressTimer));
+            playerStatus.addEventListener('mousedown', () => {
+                _longPressTimer = setTimeout(showDebugModal, 1000);
+            });
+            playerStatus.addEventListener('mouseup', () => clearTimeout(_longPressTimer));
+            playerStatus.addEventListener('mouseleave', () => clearTimeout(_longPressTimer));
         });
     </script>
     <style>
         * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; font-family: Arial, sans-serif; position: fixed; top: 0; left: 0; }
+
+        #pullRefreshIndicator {
+            position: fixed; top: 0; left: 50%; transform: translateX(-50%) translateY(-50px);
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff;
+            z-index: 99999; transition: transform 0.2s, opacity 0.2s;
+        }
+        #pullRefreshIndicator.spinning { animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: translateX(-50%) translateY(10px) rotate(360deg); } }
         #game { position: fixed; inset: 0; width: 100vw; height: 100vh; width: 100dvw; height: 100dvh; }
         .loading { color: #fff; text-align: center; padding: 20px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
@@ -351,6 +474,7 @@
                 case 'registered':
                     playerNumber = msg.playerNum;
                     console.log('Controller registered, Player', playerNumber + 1);
+                    requestWakeLock(); // Keep phone screen on while connected
                     updateStatus('connected', playerNumber);
                     gameMenu?.setWebSocket(wsManager.ws);
                     connectP2P();
