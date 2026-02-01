@@ -18,7 +18,9 @@
                 this._currentRomSource = null;
                 this._currentParentRomSource = null;
                 this._currentBiosSource = null;
-                this._currentGameHeight = '';
+                this._currentGameHeight = 100;
+                this._threads = false;
+                this._showingSettings = false;
                 this.gamePresets = {};
 
                 this.shadowRoot.innerHTML = this.getTemplate();
@@ -38,8 +40,13 @@
                 this.biosFileInput = this.shadowRoot.getElementById('biosFileInput');
                 this.loadingOverlay = this.shadowRoot.getElementById('loadingOverlay');
                 this.cancelButton = this.shadowRoot.getElementById('cancelButton');
-                this.gameHeightSelect = this.shadowRoot.getElementById('gameHeightSelect');
                 this.refreshButton = this.shadowRoot.getElementById('refreshButton');
+                this.debugButton = this.shadowRoot.getElementById('debugButton');
+                this.gameSelectionView = this.shadowRoot.getElementById('gameSelectionView');
+                this.settingsView = this.shadowRoot.getElementById('settingsView');
+                this.gameHeightSlider = this.shadowRoot.getElementById('gameHeightSlider');
+                this.gameHeightValue = this.shadowRoot.getElementById('gameHeightValue');
+                this.threadsToggle = this.shadowRoot.getElementById('threadsToggle');
             }
 
             connectedCallback() { this.init(); }
@@ -193,29 +200,264 @@
                             fill: currentColor;
                         }
                         :host([mode="controller"]) .refresh-button { display: flex; }
+
+                        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+                        .menu-header {
+                            grid-column: 1 / -1;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            padding-bottom: 12px;
+                            margin-bottom: 5px;
+                            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                            position: relative;
+                        }
+                        .title-wrapper {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                        }
+                        .title-icon {
+                            font-size: 18px;
+                            line-height: 1;
+                        }
+                        .menu-title {
+                            font-family: 'Press Start 2P', monospace;
+                            font-size: 14px;
+                            font-weight: bold;
+                            background: linear-gradient(
+                                90deg,
+                                #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3, #ff0000
+                            );
+                            background-size: 200% 100%;
+                            -webkit-background-clip: text;
+                            -webkit-text-fill-color: transparent;
+                            background-clip: text;
+                            animation: rainbow-move 3s linear infinite;
+                            text-transform: uppercase;
+                            letter-spacing: 2px;
+                        }
+                        @keyframes rainbow-move {
+                            0% { background-position: 0% 50%; }
+                            100% { background-position: 200% 50%; }
+                        }
+                        .debug-button {
+                            position: absolute;
+                            right: -5px;
+                            top: -2px;
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 4px;
+                            background: transparent;
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            color: rgba(255, 255, 255, 0.25);
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            transition: all 0.3s;
+                            padding: 0;
+                        }
+                        .debug-button:hover {
+                            background: rgba(255, 255, 255, 0.05);
+                            border-color: rgba(255, 255, 255, 0.2);
+                            color: rgba(255, 255, 255, 0.4);
+                        }
+                        .debug-button.active {
+                            background: rgba(255, 255, 255, 0.1);
+                            border-color: rgba(255, 255, 255, 0.3);
+                            color: rgba(255, 255, 255, 0.6);
+                        }
+                        .debug-button svg {
+                            width: 14px;
+                            height: 14px;
+                            fill: currentColor;
+                        }
+
+                        .settings-view {
+                            display: none;
+                            flex-direction: column;
+                            gap: 16px;
+                            grid-column: 1 / -1;
+                            padding-top: 10px;
+                        }
+                        .settings-view.visible {
+                            display: flex;
+                        }
+                        .game-selection-view.hidden {
+                            display: none;
+                        }
+                        #gameSelectionView {
+                            display: contents;
+                        }
+                        #gameSelectionView.hidden {
+                            display: none;
+                        }
+
+                        .setting-row {
+                            display: flex;
+                            flex-direction: column;
+                            gap: 8px;
+                        }
+                        .setting-label {
+                            color: rgba(255, 255, 255, 0.7);
+                            font-size: 13px;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        }
+                        .setting-value {
+                            color: rgba(255, 255, 255, 0.9);
+                            font-family: monospace;
+                            font-size: 12px;
+                        }
+
+                        .slider-container {
+                            display: flex;
+                            align-items: center;
+                            gap: 10px;
+                        }
+                        input[type="range"] {
+                            flex: 1;
+                            height: 6px;
+                            -webkit-appearance: none;
+                            appearance: none;
+                            background: rgba(255, 255, 255, 0.1);
+                            border-radius: 3px;
+                            outline: none;
+                        }
+                        input[type="range"]::-webkit-slider-thumb {
+                            -webkit-appearance: none;
+                            appearance: none;
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 50%;
+                            background: #1AAFFF;
+                            cursor: pointer;
+                            transition: transform 0.2s;
+                        }
+                        input[type="range"]::-webkit-slider-thumb:hover {
+                            transform: scale(1.1);
+                        }
+                        input[type="range"]::-moz-range-thumb {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 50%;
+                            background: #1AAFFF;
+                            cursor: pointer;
+                            border: none;
+                        }
+
+                        .toggle-switch {
+                            position: relative;
+                            width: 44px;
+                            height: 24px;
+                            flex-shrink: 0;
+                        }
+                        .toggle-switch input {
+                            opacity: 0;
+                            width: 0;
+                            height: 0;
+                        }
+                        .toggle-slider {
+                            position: absolute;
+                            cursor: pointer;
+                            inset: 0;
+                            background: rgba(255, 255, 255, 0.1);
+                            border: 1px solid rgba(255, 255, 255, 0.2);
+                            border-radius: 24px;
+                            transition: all 0.3s;
+                        }
+                        .toggle-slider::before {
+                            position: absolute;
+                            content: "";
+                            height: 18px;
+                            width: 18px;
+                            left: 2px;
+                            bottom: 2px;
+                            background: rgba(255, 255, 255, 0.5);
+                            border-radius: 50%;
+                            transition: all 0.3s;
+                        }
+                        .toggle-switch input:checked + .toggle-slider {
+                            background: rgba(76, 175, 80, 0.3);
+                            border-color: rgba(76, 175, 80, 0.5);
+                        }
+                        .toggle-switch input:checked + .toggle-slider::before {
+                            transform: translateX(20px);
+                            background: #4CAF50;
+                        }
+
+                        .toggle-row {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        }
+                        .toggle-info {
+                            display: flex;
+                            flex-direction: column;
+                            gap: 2px;
+                        }
+                        .toggle-description {
+                            color: rgba(255, 255, 255, 0.4);
+                            font-size: 11px;
+                        }
                     </style>
 
                     <div class="game-controls" id="gameControls">
-                        <select id="allGamesSelect" class="full-width"><option value="">All Games</option></select>
-                        <div class="or-separator">- or filter by -</div>
-                        <div class="filter-row">
-                            <select id="coreSelect"><option value="">Console</option></select>
-                            <select id="playerCountSelect" disabled><option value="">Players</option></select>
+                        <div class="menu-header">
+                            <div class="title-wrapper">
+                                <span class="title-icon">🕹️</span>
+                                <span class="menu-title">RetroBox</span>
+                            </div>
+                            <button class="debug-button" id="debugButton" title="Settings">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                            </button>
                         </div>
-                        <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
-                        <div class="or-separator">- or -</div>
-                        <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
-                        <button class="upload-btn" id="uploadButton">+</button>
-                        <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
-                        <button class="upload-btn" id="biosUploadButton">+</button>
-                        <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
-                        <select id="gameHeightSelect" class="full-width">
-                            <option value="">Game Height: 100%</option>
-                            <option value="90">90%</option>
-                            <option value="75">75%</option>
-                            <option value="60">60%</option>
-                        </select>
-                        <button class="start-button full-width" id="startButton" disabled>Start Game</button>
+
+                        <div id="gameSelectionView">
+                            <select id="allGamesSelect" class="full-width"><option value="">All Games</option></select>
+                            <div class="or-separator">- or filter by -</div>
+                            <div class="filter-row">
+                                <select id="coreSelect"><option value="">Console</option></select>
+                                <select id="playerCountSelect" disabled><option value="">Players</option></select>
+                            </div>
+                            <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
+                            <div class="or-separator">- or -</div>
+                            <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
+                            <button class="upload-btn" id="uploadButton">+</button>
+                            <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
+                            <button class="upload-btn" id="biosUploadButton">+</button>
+                            <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
+                            <button class="start-button full-width" id="startButton" disabled>Start Game</button>
+                        </div>
+
+                        <div class="settings-view" id="settingsView">
+                            <div class="setting-row">
+                                <div class="setting-label">
+                                    <span>Game Height</span>
+                                    <span class="setting-value" id="gameHeightValue">100%</span>
+                                </div>
+                                <div class="slider-container">
+                                    <input type="range" id="gameHeightSlider" min="50" max="100" value="100" step="5">
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <div class="toggle-row">
+                                    <div class="toggle-info">
+                                        <span class="setting-label">Threads</span>
+                                        <span class="toggle-description">Enable multi-threading (experimental)</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="threadsToggle">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="loading-overlay" id="loadingOverlay">
                             <div class="loading-spinner"></div>
                             <div class="loading-text">Loading game...</div>
@@ -514,10 +756,6 @@
 
                 this.consoleSelect.onchange = () => this.updateStartButtonState();
 
-                this.gameHeightSelect.onchange = (e) => {
-                    this._currentGameHeight = e.target.value;
-                };
-
                 this.startButton.onclick = () => {
                     if (!this._currentRomSource || !this.consoleSelect.value) return;
 
@@ -531,7 +769,8 @@
                         biosSource: this._currentBiosSource,
                         core: this.consoleSelect.value,
                         romName,
-                        gameHeight: this._currentGameHeight || null
+                        gameHeight: this._currentGameHeight < 100 ? this._currentGameHeight : null,
+                        threads: this._threads
                     };
 
                     this.showLoading();
@@ -563,6 +802,43 @@
                     }
                     setTimeout(() => window.location.reload(), 500);
                 };
+
+                // Debug/Settings button
+                this.debugButton.onclick = () => {
+                    this._showingSettings = !this._showingSettings;
+                    this.updateSettingsVisibility();
+                };
+
+                // Game height slider
+                this.gameHeightSlider.oninput = (e) => {
+                    const value = parseInt(e.target.value);
+                    this._currentGameHeight = value;
+                    this.gameHeightValue.textContent = value + '%';
+                };
+
+                // Threads toggle
+                this.threadsToggle.onchange = (e) => {
+                    this._threads = e.target.checked;
+                };
+            }
+
+            updateSettingsVisibility() {
+                const gearIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>';
+                const backIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>';
+
+                if (this._showingSettings) {
+                    this.gameSelectionView.classList.add('hidden');
+                    this.settingsView.classList.add('visible');
+                    this.debugButton.classList.add('active');
+                    this.debugButton.innerHTML = backIcon;
+                    this.debugButton.title = 'Back';
+                } else {
+                    this.gameSelectionView.classList.remove('hidden');
+                    this.settingsView.classList.remove('visible');
+                    this.debugButton.classList.remove('active');
+                    this.debugButton.innerHTML = gearIcon;
+                    this.debugButton.title = 'Settings';
+                }
             }
 
             clearManualInputs() {
@@ -668,7 +944,8 @@
                 this.romUrlInput.disabled = !connected;
                 this.biosUrlInput.disabled = !connected;
                 this.consoleSelect.disabled = !connected;
-                this.gameHeightSelect.disabled = !connected;
+                this.gameHeightSlider.disabled = !connected;
+                this.threadsToggle.disabled = !connected;
                 this.updateStartButtonState();
 
                 if (!connected) {

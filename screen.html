@@ -649,7 +649,8 @@
                 name: gameData.romName.split('.').slice(0, -1).join('.'),
                 core: gameData.core,
                 biosSource: gameData.biosSource,
-                gameHeight: gameData.gameHeight || null
+                gameHeight: gameData.gameHeight || null,
+                threads: gameData.threads || false
             };
             setState(State.LOADING);
             initializeEmulator();
@@ -757,7 +758,7 @@
             window.EJS_startOnLoaded = true;
             window.EJS_volume = 1;
             window.EJS_DEBUG_XX = true;
-            window.EJS_threads = true;
+            window.EJS_threads = pendingROM?.threads || false;
             window.EJS_EXPERIMENTAL_NETPLAY = true;
             window.EJS_defaultControls = false;
             window.EJS_backgroundBlur = false;
