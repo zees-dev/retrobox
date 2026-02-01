@@ -6,25 +6,43 @@
     <title>RetroBox Controller</title>
     <script>
         // Screen Wake Lock - keep screen on while controller is active
+        // Uses native Wake Lock API if available, falls back to NoSleep.js
         let wakeLock = null;
+        let noSleep = null;
+        let userHasInteracted = false;
+
         async function requestWakeLock() {
-            if (!('wakeLock' in navigator)) {
-                console.log('Wake Lock not supported');
-                return;
+            const statusDot = document.getElementById('statusDot');
+            // Try native Wake Lock API first
+            if ('wakeLock' in navigator) {
+                try {
+                    if (wakeLock) return;
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        console.log('Wake Lock released');
+                        wakeLock = null;
+                        statusDot?.classList.remove('wakelock');
+                    });
+                    console.log('Wake Lock acquired (native)');
+                    statusDot?.classList.add('wakelock');
+                    return;
+                } catch (e) {
+                    console.log('Wake Lock native error:', e.message);
+                }
             }
-            try {
-                if (wakeLock) return; // Already held
-                wakeLock = await navigator.wakeLock.request('screen');
-                wakeLock.addEventListener('release', () => {
-                    console.log('Wake Lock released');
-                    wakeLock = null;
-                });
-                console.log('Wake Lock acquired');
-            } catch (e) {
-                console.log('Wake Lock error:', e.message);
+            // Fallback to NoSleep.js (only after user interaction)
+            if (noSleep && userHasInteracted) {
+                try {
+                    await noSleep.enable();
+                    console.log('Wake Lock acquired (NoSleep.js)');
+                    statusDot?.classList.add('wakelock');
+                } catch (e) {
+                    console.log('NoSleep.js error:', e.message);
+                }
             }
         }
-        // Re-acquire when page becomes visible (it auto-releases when hidden)
+
+        // Re-acquire when page becomes visible
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') requestWakeLock();
         });
@@ -162,7 +180,8 @@
         .status-dot.player-2 { background: #9C27B0; box-shadow: 0 0 15px rgba(156, 39, 176, 0.6); }
         .status-dot.player-3 { background: #FFC107; box-shadow: 0 0 15px rgba(255, 193, 7, 0.6); }
         .status-dot.error { background: #f44336; box-shadow: 0 0 15px rgba(244, 67, 54, 0.6); }
-        .status-dot.p2p::after { content: ''; position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; background: #00ff00; border-radius: 50%; }
+        .status-dot.p2p::after { content: ''; position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; background: #9e9d24; border-radius: 50%; transition: background 0.3s; }
+        .status-dot.p2p.wakelock::after { background: #4CAF50; }
         @keyframes blink { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
         @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.9; } }
 
@@ -182,6 +201,20 @@
         .test-controller-link { display: flex; align-items: center; justify-content: center; height: 36px; padding: 0 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #1AAFFF; text-decoration: none; font-size: 12px; white-space: nowrap; transition: all 0.3s; }
         .test-controller-link:hover { background: rgba(255, 255, 255, 0.15); border-color: #1AAFFF; }
     </style>
+    <script src="deps/nosleep.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof NoSleep !== 'undefined') {
+                noSleep = new NoSleep();
+                const enableOnInteraction = () => {
+                    userHasInteracted = true;
+                    requestWakeLock();
+                };
+                document.addEventListener('touchstart', enableOnInteraction, { once: true });
+                document.addEventListener('click', enableOnInteraction, { once: true });
+            }
+        });
+    </script>
 </head>
 <body>
     <div id="game"><div class="loading">Mobile Controller</div></div>
