@@ -115,6 +115,17 @@ function getNextPlayerNumber(screenId: string): number {
   return usedNumbers.size;
 }
 
+function broadcastPlayerList(screenId: string) {
+  const players: number[] = [];
+  for (const [, ctrl] of controllers) {
+    if (ctrl.screenId === screenId) players.push(ctrl.playerNum);
+  }
+  const msg = JSON.stringify({ type: "playerList", players });
+  for (const [, ctrl] of controllers) {
+    if (ctrl.screenId === screenId) ctrl.ws.send(msg);
+  }
+}
+
 serve({
   port: PORT,
   hostname: "0.0.0.0",
@@ -343,6 +354,7 @@ serve({
         console.log(`Controller registered: ${controllerId} -> screen ${screenId} (Player ${playerNum + 1})${typeof requestedPlayerNum === 'number' ? ' [requested]' : ''}`);
         ws.send(JSON.stringify({ type: "registered", controllerId, playerNum }));
         screenWs.send(JSON.stringify({ type: "controller-connected", controllerId, playerNum }));
+        broadcastPlayerList(screenId);
         return;
       }
 
@@ -403,10 +415,12 @@ serve({
       } else if (wsData.type === "controller" && wsData.id) {
         const ctrl = controllers.get(wsData.id);
         if (ctrl) {
+          const screenId = ctrl.screenId;
           console.log(`Controller disconnected: ${wsData.id} (Player ${ctrl.playerNum + 1})`);
-          const screenWs = screens.get(ctrl.screenId);
+          const screenWs = screens.get(screenId);
           if (screenWs) screenWs.send(JSON.stringify({ type: "controller-disconnected", controllerId: wsData.id, playerNum: ctrl.playerNum }));
           controllers.delete(wsData.id);
+          broadcastPlayerList(screenId);
         }
       }
     },
