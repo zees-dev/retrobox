@@ -279,11 +279,40 @@
                     loadState(msg.slot);
                     break;
 
+                case 'setSetting':
+                    // Apply setting from controller
+                    if (EJS_emulator?.handler && msg.setting) {
+                        try {
+                            EJS_emulator.handler.exec('settings.change', { setting: msg.setting, value: msg.value });
+                            console.log('Setting applied from controller:', msg.setting, '=', msg.value);
+                        } catch (e) { console.error('Setting error:', e); }
+                    }
+                    break;
+
+                case 'getSettings':
+                    // Send current settings to requesting controller (server adds controllerId to msg)
+                    if (EJS_emulator?.settings && msg.controllerId) {
+                        ws.send(JSON.stringify({
+                            type: 'settingsSync',
+                            targetController: msg.controllerId,
+                            settings: EJS_emulator.settings,
+                            core: pendingROM?.core
+                        }));
+                        console.log('Sent settings sync to controller:', msg.controllerId);
+                    }
+                    break;
+
                 default:
-                    // Handle input from controller (WebSocket fallback)
+                    // Handle input and other commands from controller (WebSocket fallback)
                     if (currentState === State.PLAYING && EJS_emulator?.handler && msg.method) {
-                        try { EJS_emulator.handler.exec(msg.method, msg.params); }
-                        catch (e) { console.error('Input error:', e); }
+                        try {
+                            EJS_emulator.handler.exec(msg.method, msg.params);
+                            // Log non-input commands for debugging
+                            if (msg.method !== 'input.simulate') {
+                                console.log('Command from controller:', msg.method, msg.params);
+                            }
+                        }
+                        catch (e) { console.error('Command error:', e); }
                     }
             }
         }

@@ -147,6 +147,11 @@
         const txView = new DataView(txBuf);
         const txBytes = new Uint8Array(txBuf);
 
+        // Pre-allocated button state array (zero-allocation pattern)
+        // Buttons 0-23, using 32 for alignment. Value: 0=released, 1=pressed, 255=uninitialized
+        const lastButtonState = new Uint8Array(32);
+        lastButtonState.fill(255); // Mark all as uninitialized (first message always sends)
+
         function connectP2P() {
             if (pc) try { pc.close(); } catch {}
             pc = new RTCPeerConnection({ iceServers: [] });
@@ -159,6 +164,7 @@
             inputChannel.onopen = () => {
                 console.log('[WebRTC] DataChannel open');
                 document.getElementById('statusDot').classList.add('p2p');
+                lastButtonState.fill(255); // Reset to uninitialized (first message always sends)
             };
 
             inputChannel.onclose = () => {
@@ -221,10 +227,18 @@
         // Analog stick axes (indices 16-23 use 0-0x7fff values)
         const ANALOG_AXES = new Set([16, 17, 18, 19, 20, 21, 22, 23]);
 
-        // Send input over P2P DataChannel. Returns true if sent.
+        // Send input over P2P DataChannel. Returns true if sent (or suppressed due to no state change).
         // Protocol: [methodId:1][timestamp:4][button:1][value:1-2]
         function sendP2PInput(button, value, isAnalog) {
             if (!inputChannel || inputChannel.readyState !== 'open') return false;
+
+            // For digital buttons, only send on state change (O(1) array lookup)
+            if (!isAnalog) {
+                if (lastButtonState[button] === value) {
+                    return true; // Already in this state, suppress but don't fallback to WS
+                }
+                lastButtonState[button] = value;
+            }
 
             txView.setUint32(1, performance.now() | 0, false);
             txBytes[5] = button;
@@ -369,6 +383,18 @@
 
                 case 'heartbeat-ack':
                     break;
+
+                case 'settingsSync':
+                    // Apply settings from screen to local EmulatorJS instance
+                    if (msg.settings && window.EJS_emulator?.handler) {
+                        console.log('Syncing settings from screen:', Object.keys(msg.settings).length, 'settings');
+                        for (const [setting, value] of Object.entries(msg.settings)) {
+                            try {
+                                EJS_emulator.handler.exec('settings.change', { setting, value });
+                            } catch (e) { /* ignore individual setting errors */ }
+                        }
+                    }
+                    break;
             }
         }
 
@@ -410,8 +436,20 @@
                 };
                 const script = document.createElement('script');
                 script.src = 'EmulatorJS/data/loader.js';
-                script.onload = () => { console.log('EmulatorJS loaded'); emulatorLoaded = true; };
+                script.onload = () => {
+                    console.log('EmulatorJS loaded');
+                    emulatorLoaded = true;
+                    // Request settings sync from screen after EmulatorJS is ready
+                    setTimeout(() => requestSettingsSync(), 500);
+                };
                 document.body.appendChild(script);
+            }
+        }
+
+        function requestSettingsSync() {
+            if (ws?.readyState === WebSocket.OPEN) {
+                sendToScreen({ type: 'getSettings' });
+                console.log('Requested settings sync from screen');
             }
         }
 
@@ -434,12 +472,26 @@
         EJS_onCommand = event => {
             if (event.method === 'control.fullscreen') return;
 
+            // Handle settings changes - send as explicit setSetting message
+            if (event.method === 'settings.change' && event.params) {
+                console.log('Setting changed locally:', event.params.setting, '=', event.params.value);
+                sendToScreen({ type: 'setSetting', setting: event.params.setting, value: event.params.value });
+                return;
+            }
+
             if (event.method === 'input.simulate' && event.params) {
                 const { button, state, value } = event.params;
                 const isAnalog = state === 'analog' || ANALOG_AXES.has(button);
                 const inputValue = isAnalog ? (value || 0) : (state === 'pressed' || value === 1 ? 1 : 0);
 
                 if (sendP2PInput(button, inputValue, isAnalog)) return;
+
+                // WebSocket fallback: also deduplicate (O(1) array lookup)
+                if (!isAnalog) {
+                    if (lastButtonState[button] === inputValue) return;
+                    lastButtonState[button] = inputValue;
+                }
+
                 event.params.player = playerNumber ?? 0;
             }
             sendToScreen(event);
