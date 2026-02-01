@@ -13,13 +13,13 @@
                 this.attachShadow({ mode: 'open' });
 
                 this._mode = 'screen';
-                this._showManualConfig = true;
                 this._ws = null;
                 this._currentRomSource = null;
                 this._currentParentRomSource = null;
                 this._currentBiosSource = null;
                 this._currentGameHeight = 100;
                 this._threads = false;
+                this._useUrl = false;
                 this._showingSettings = false;
                 this.gamePresets = {};
 
@@ -44,21 +44,30 @@
                 this.debugButton = this.shadowRoot.getElementById('debugButton');
                 this.gameSelectionView = this.shadowRoot.getElementById('gameSelectionView');
                 this.settingsView = this.shadowRoot.getElementById('settingsView');
+                this.playerStatus = this.shadowRoot.getElementById('playerStatus');
+                this.playerIndicators = this.shadowRoot.querySelectorAll('.player-indicator');
                 this.gameHeightSlider = this.shadowRoot.getElementById('gameHeightSlider');
                 this.gameHeightValue = this.shadowRoot.getElementById('gameHeightValue');
                 this.threadsToggle = this.shadowRoot.getElementById('threadsToggle');
+                this.useUrlToggle = this.shadowRoot.getElementById('useUrlToggle');
+                this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
+                this.presetSection = this.shadowRoot.getElementById('presetSection');
+                this.menuTitle = this.shadowRoot.querySelector('.menu-title');
+
+                // Remove cursor after typewriter animation
+                this.menuTitle?.addEventListener('animationend', (e) => {
+                    if (e.animationName === 'typewriter') {
+                        this.menuTitle.classList.add('typed');
+                    }
+                });
             }
 
             connectedCallback() { this.init(); }
 
-            static get observedAttributes() { return ['mode', 'show-manual-config']; }
+            static get observedAttributes() { return ['mode']; }
 
             attributeChangedCallback(name, oldValue, newValue) {
                 if (name === 'mode') this._mode = newValue || 'screen';
-                else if (name === 'show-manual-config') {
-                    this._showManualConfig = newValue !== 'false';
-                    this.updateManualConfigVisibility();
-                }
             }
 
             get mode() { return this._mode; }
@@ -143,12 +152,26 @@
                         .upload-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: #1AAFFF; transform: scale(1.05); }
 
                         .start-button { background: rgba(76, 175, 80, 0.2); border-color: rgba(76, 175, 80, 0.4); color: #4CAF50; font-weight: bold; }
-                        .start-button.full-width { width: 100%; height: 45px; font-size: 16px; margin-top: 5px; }
+                        .start-button.full-width { width: 100%; height: 45px; font-size: 16px; margin-top: 5px; padding-right: 24px; }
+                        .start-button svg { flex-shrink: 0; margin-right: 6px; }
                         .start-button:not(:disabled):hover { background: rgba(76, 175, 80, 0.3); border-color: #4CAF50; color: #66BB6A; transform: scale(1.05); }
                         .start-button:disabled { background: rgba(128, 128, 128, 0.1); border-color: rgba(128, 128, 128, 0.2); color: #666; opacity: 0.6; cursor: not-allowed; }
 
                         .full-width { grid-column: 1 / -1; }
                         .or-separator { grid-column: 1 / -1; text-align: center; color: rgba(255, 255, 255, 0.5); font-size: 14px; padding: 5px 0; }
+
+                        .preset-section {
+                            display: contents;
+                        }
+                        .preset-section.hidden {
+                            display: none;
+                        }
+                        .manual-config {
+                            display: contents;
+                        }
+                        .manual-config.hidden {
+                            display: none;
+                        }
                         input[type="file"] { display: none; }
                         .connection-status { position: absolute; top: -30px; left: 50%; transform: translateX(-50%); color: #ff9800; font-size: 14px; white-space: nowrap; }
                         .disabled-overlay { opacity: 0.5; }
@@ -234,13 +257,26 @@
                             -webkit-background-clip: text;
                             -webkit-text-fill-color: transparent;
                             background-clip: text;
-                            animation: rainbow-move 3s linear infinite;
+                            animation: rainbow-move 3s linear infinite, typewriter 2s steps(8) forwards;
                             text-transform: uppercase;
                             letter-spacing: 2px;
+                            overflow: hidden;
+                            white-space: nowrap;
+                            width: 0;
+                            border-right: 2px solid rgba(255, 255, 255, 0.7);
+                        }
+                        .menu-title.typed {
+                            width: auto;
+                            border-right: none;
+                            animation: rainbow-move 3s linear infinite;
                         }
                         @keyframes rainbow-move {
                             0% { background-position: 0% 50%; }
                             100% { background-position: 200% 50%; }
+                        }
+                        @keyframes typewriter {
+                            0% { width: 0; }
+                            100% { width: 8ch; }
                         }
                         .debug-button {
                             position: absolute;
@@ -399,12 +435,92 @@
                             flex-direction: column;
                             gap: 2px;
                         }
+                        .toggle-info .setting-label {
+                            display: inline;
+                        }
                         .toggle-description {
                             color: rgba(255, 255, 255, 0.4);
                             font-size: 11px;
                         }
+                        .ejs-prefix {
+                            color: #00CED1;
+                            font-weight: bold;
+                            font-size: 9px;
+                            margin-left: 2px;
+                        }
+                        .setting-persisted .setting-label,
+                        .setting-persisted .toggle-info .setting-label {
+                            color: rgba(255, 235, 150, 0.85);
+                        }
+
+                        .player-status {
+                            position: fixed;
+                            top: calc(50% - 220px);
+                            left: 50%;
+                            transform: translateX(-50%);
+                            display: flex;
+                            gap: 8px;
+                            align-items: center;
+                            justify-content: center;
+                            background: rgba(0, 0, 0, 0.7);
+                            padding: 8px 16px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            transition: opacity 0.3s, visibility 0.3s;
+                            z-index: 1001;
+                            pointer-events: auto;
+                        }
+                        .player-status.hidden {
+                            opacity: 0;
+                            visibility: hidden;
+                            pointer-events: none;
+                        }
+                        .player-indicator {
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                            color: rgba(255, 255, 255, 0.4);
+                            font-size: 11px;
+                        }
+                        .player-indicator.connected {
+                            color: rgba(255, 255, 255, 0.9);
+                        }
+                        .player-indicator.connected .pip {
+                            animation: pulse 2s ease-in-out infinite;
+                        }
+                        .player-indicator.reserved {
+                            color: rgba(255, 255, 255, 0.5);
+                        }
+                        .player-indicator.reserved .pip {
+                            opacity: 0.5;
+                        }
+                        .player-indicator .pip {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 50%;
+                            background: rgba(255, 255, 255, 0.15);
+                            border: 1px solid rgba(255, 255, 255, 0.2);
+                        }
+                        .player-indicator.connected .pip,
+                        .player-indicator.reserved .pip {
+                            border: none;
+                        }
+                        .player-indicator .pip.p0 { background: #4CAF50; box-shadow: 0 0 6px rgba(76, 175, 80, 0.4); }
+                        .player-indicator .pip.p1 { background: #2196F3; box-shadow: 0 0 6px rgba(33, 150, 243, 0.4); }
+                        .player-indicator .pip.p2 { background: #9C27B0; box-shadow: 0 0 6px rgba(156, 39, 176, 0.4); }
+                        .player-indicator .pip.p3 { background: #FFC107; box-shadow: 0 0 6px rgba(255, 193, 7, 0.4); }
+                        @keyframes pulse {
+                            0%, 100% { transform: scale(1); opacity: 1; }
+                            50% { transform: scale(1.15); opacity: 0.8; }
+                        }
                     </style>
 
+                    <div class="player-status" id="playerStatus">
+                        <div class="player-indicator" data-player="0"><span class="pip"></span><span>P1</span></div>
+                        <div class="player-indicator" data-player="1"><span class="pip"></span><span>P2</span></div>
+                        <div class="player-indicator" data-player="2"><span class="pip"></span><span>P3</span></div>
+                        <div class="player-indicator" data-player="3"><span class="pip"></span><span>P4</span></div>
+                    </div>
                     <div class="game-controls" id="gameControls">
                         <div class="menu-header">
                             <div class="title-wrapper">
@@ -417,24 +533,27 @@
                         </div>
 
                         <div id="gameSelectionView">
-                            <select id="allGamesSelect" class="full-width"><option value="">All Games</option></select>
-                            <div class="or-separator">- or filter by -</div>
-                            <div class="filter-row">
-                                <select id="coreSelect"><option value="">Console</option></select>
-                                <select id="playerCountSelect" disabled><option value="">Players</option></select>
+                            <div id="presetSection" class="preset-section">
+                                <select id="allGamesSelect" class="full-width"><option value="">All Games</option></select>
+                                <div class="or-separator">- or filter by -</div>
+                                <div class="filter-row">
+                                    <select id="coreSelect"><option value="">Console</option></select>
+                                    <select id="playerCountSelect" disabled><option value="">Players</option></select>
+                                </div>
+                                <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
                             </div>
-                            <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
-                            <div class="or-separator">- or -</div>
-                            <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
-                            <button class="upload-btn" id="uploadButton">+</button>
-                            <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
-                            <button class="upload-btn" id="biosUploadButton">+</button>
-                            <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
-                            <button class="start-button full-width" id="startButton" disabled>Start Game</button>
+                            <div id="manualConfigSection" class="manual-config hidden">
+                                <input type="text" id="romUrlInput" placeholder="Enter ROM URL or upload file">
+                                <button class="upload-btn" id="uploadButton">+</button>
+                                <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
+                                <button class="upload-btn" id="biosUploadButton">+</button>
+                                <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
+                            </div>
+                            <button class="start-button full-width" id="startButton" disabled><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button>
                         </div>
 
                         <div class="settings-view" id="settingsView">
-                            <div class="setting-row">
+                            <div class="setting-row setting-persisted">
                                 <div class="setting-label">
                                     <span>Game Height</span>
                                     <span class="setting-value" id="gameHeightValue">100%</span>
@@ -444,14 +563,27 @@
                                 </div>
                             </div>
 
-                            <div class="setting-row">
+                            <div class="setting-row setting-persisted">
                                 <div class="toggle-row">
                                     <div class="toggle-info">
-                                        <span class="setting-label">Threads</span>
+                                        <span class="setting-label"><span>Threads<sup class="ejs-prefix">EJS</sup></span></span>
                                         <span class="toggle-description">Enable multi-threading (experimental)</span>
                                     </div>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="threadsToggle">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <div class="toggle-row">
+                                    <div class="toggle-info">
+                                        <span class="setting-label">Use URL</span>
+                                        <span class="toggle-description">Load ROM from URL instead of presets</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="useUrlToggle">
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
@@ -504,6 +636,7 @@
 
                 this.populateSelectors();
                 this.setupEventListeners();
+                this.loadPersistedSettings();
                 this.updateManualConfigVisibility();
                 this.updateConnectionStatus();
 
@@ -814,12 +947,85 @@
                     const value = parseInt(e.target.value);
                     this._currentGameHeight = value;
                     this.gameHeightValue.textContent = value + '%';
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_gameHeight', value);
+                    } else if (this._mode === 'controller') {
+                        this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'gameHeight', value }, bubbles: true }));
+                    }
                 };
 
                 // Threads toggle
                 this.threadsToggle.onchange = (e) => {
                     this._threads = e.target.checked;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_threads', e.target.checked);
+                    } else if (this._mode === 'controller') {
+                        this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'threads', value: e.target.checked }, bubbles: true }));
+                    }
                 };
+
+                // Use URL toggle
+                this.useUrlToggle.onchange = (e) => {
+                    this._useUrl = e.target.checked;
+                    this.updateManualConfigVisibility();
+                };
+            }
+
+            updateManualConfigVisibility() {
+                if (this._useUrl) {
+                    this.presetSection.classList.add('hidden');
+                    this.manualConfigSection.classList.remove('hidden');
+                    // Hide upload buttons on controller mode (file uploads not supported)
+                    if (this._mode === 'controller') {
+                        this.uploadButton.style.display = 'none';
+                        this.biosUploadButton.style.display = 'none';
+                    } else {
+                        this.uploadButton.style.display = '';
+                        this.biosUploadButton.style.display = '';
+                    }
+                } else {
+                    this.presetSection.classList.remove('hidden');
+                    this.manualConfigSection.classList.add('hidden');
+                }
+            }
+
+            loadPersistedSettings() {
+                if (this._mode !== 'screen') return;
+
+                // Load game height
+                const savedHeight = localStorage.getItem('retrobox_gameHeight');
+                if (savedHeight !== null) {
+                    const height = parseInt(savedHeight);
+                    this._currentGameHeight = height;
+                    this.gameHeightSlider.value = height;
+                    this.gameHeightValue.textContent = height + '%';
+                }
+
+                // Load threads setting
+                const savedThreads = localStorage.getItem('retrobox_threads');
+                if (savedThreads !== null) {
+                    this._threads = savedThreads === 'true';
+                    this.threadsToggle.checked = this._threads;
+                }
+            }
+
+            // Apply setting from external source (e.g., controller via WebSocket)
+            applySetting(setting, value) {
+                if (setting === 'gameHeight') {
+                    const height = parseInt(value);
+                    this._currentGameHeight = height;
+                    this.gameHeightSlider.value = height;
+                    this.gameHeightValue.textContent = height + '%';
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_gameHeight', height);
+                    }
+                } else if (setting === 'threads') {
+                    this._threads = value === true || value === 'true';
+                    this.threadsToggle.checked = this._threads;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_threads', this._threads);
+                    }
+                }
             }
 
             updateSettingsVisibility() {
@@ -885,26 +1091,6 @@
                 this.updateStartButtonState();
             }
 
-            updateManualConfigVisibility() {
-                if (!this.container) return;
-                if (!this._showManualConfig) {
-                    this.container.classList.add('preset-only');
-                    // Hide all or-separators except the first one (filter by)
-                    const separators = this.shadowRoot.querySelectorAll('.or-separator');
-                    separators.forEach((sep, i) => { if (i > 0) sep.style.display = 'none'; });
-                    this.romUrlInput.style.display = 'none';
-                    this.uploadButton.style.display = 'none';
-                    this.biosUrlInput.style.display = 'none';
-                    this.biosUploadButton.style.display = 'none';
-                    this.consoleSelect.style.display = 'none';
-                    this.container.style.gridTemplateColumns = '1fr';
-                } else if (this._mode === 'controller') {
-                    this.uploadButton.style.display = 'none';
-                    this.biosUploadButton.style.display = 'none';
-                    this.romUrlInput.placeholder = 'Enter ROM URL';
-                    this.biosUrlInput.placeholder = 'BIOS URL (optional)';
-                }
-            }
 
             updateStartButtonState() {
                 const hasRom = !!this._currentRomSource;
@@ -924,8 +1110,31 @@
                 return map[ext] || null;
             }
 
-            hide() { this.container.classList.add('hidden'); this.hideLoading(); }
-            show() { this.container.classList.remove('hidden'); this.hideLoading(); }
+            hide() { this.container.classList.add('hidden'); this.hideLoading(); this.hidePlayerStatus(); }
+            show() { this.container.classList.remove('hidden'); this.hideLoading(); this.showPlayerStatus(); }
+
+            // Player status management
+            // players: Map or object where key is playerNum (0-3), value is { connected: bool, reserved: bool }
+            updatePlayerStatus(players) {
+                this.playerIndicators.forEach((indicator, i) => {
+                    const pip = indicator.querySelector('.pip');
+                    const playerInfo = players?.get?.(i) || players?.[i];
+
+                    indicator.classList.remove('connected', 'reserved');
+                    pip.classList.remove('p0', 'p1', 'p2', 'p3');
+
+                    if (playerInfo?.connected) {
+                        indicator.classList.add('connected');
+                        pip.classList.add(`p${i}`);
+                    } else if (playerInfo?.reserved) {
+                        indicator.classList.add('reserved');
+                        pip.classList.add(`p${i}`);
+                    }
+                });
+            }
+
+            showPlayerStatus() { this.playerStatus?.classList.remove('hidden'); }
+            hidePlayerStatus() { this.playerStatus?.classList.add('hidden'); }
             showLoading() { this.loadingOverlay?.classList.add('active'); }
             hideLoading() { this.loadingOverlay?.classList.remove('active'); }
             setLoadingText(text) {

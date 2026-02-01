@@ -229,7 +229,7 @@
             <a href="https://gamepadtester.com/" target="_blank" rel="noopener" class="test-controller-link">gamepadtester.com</a>
         </div>
     </div>
-    <game-menu id="gameMenu" mode="controller" show-manual-config="false"></game-menu>
+    <game-menu id="gameMenu" mode="controller"></game-menu>
 
     <script type="module">
         import {
@@ -510,6 +510,7 @@
                     requestWakeLock(); // Keep phone screen on while connected
                     updateStatus('connected', playerNumber);
                     gameMenu?.setWebSocket(wsManager.ws);
+                    updateGameMenuPlayerStatus();
                     connectP2P();
                     break;
 
@@ -535,6 +536,7 @@
                     console.log('Screen disconnected');
                     updateStatus('connecting');
                     playerNumber = null;
+                    updateGameMenuPlayerStatus();
                     break;
 
                 case 'stateUpdate':
@@ -560,10 +562,35 @@
                         }
                     }
                     break;
+
+                case 'menuSettingsSync':
+                    // Apply menu settings (gameHeight, threads) from screen to game-menu
+                    if (msg.settings && gameMenu) {
+                        if (msg.settings.gameHeight != null) {
+                            gameMenu.applySetting('gameHeight', msg.settings.gameHeight);
+                        }
+                        if (msg.settings.threads != null) {
+                            gameMenu.applySetting('threads', msg.settings.threads);
+                        }
+                        console.log('Menu settings synced from screen:', msg.settings);
+                    }
+                    break;
             }
         }
 
         connectWebSocket();
+
+        // ============================================
+        // PLAYER STATUS
+        // ============================================
+        function updateGameMenuPlayerStatus() {
+            if (!gameMenu) return;
+            const players = new Map();
+            if (playerNumber !== null) {
+                players.set(playerNumber, { connected: true });
+            }
+            gameMenu.updatePlayerStatus(players);
+        }
 
         // ============================================
         // STATE HANDLERS
@@ -672,7 +699,14 @@
             gameMenu = await loadGameMenuComponent();
             if (gameMenu && wsManager?.isOpen) {
                 gameMenu.setWebSocket(wsManager.ws);
+                updateGameMenuPlayerStatus();
             }
+            // Forward setting changes to screen via WebSocket
+            gameMenu?.addEventListener('settingchange', (e) => {
+                const { setting, value } = e.detail;
+                console.log('Setting changed on controller:', setting, '=', value);
+                sendToScreen({ type: 'menuSetting', setting, value });
+            });
         })();
 
         window.addEventListener('beforeunload', () => {

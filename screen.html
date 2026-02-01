@@ -66,17 +66,6 @@
         #pauseOverlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 998; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         #pauseOverlay.visible { opacity: 1; }
 
-        #playerStatus { position: fixed; top: 20vh; left: 50%; transform: translateX(-50%); display: flex; gap: max(8px, 1.5vmin); align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); padding: max(8px, 1vmin) max(16px, 2vmin); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); z-index: 1001; transition: opacity 0.3s, visibility 0.3s; }
-        #playerStatus.hidden { opacity: 0; visibility: hidden; }
-        .player-indicator { display: flex; align-items: center; gap: max(4px, 0.6vmin); color: rgba(255, 255, 255, 0.6); font-size: max(11px, 1.4vmin); }
-        .player-indicator .dot { width: max(8px, 1.2vmin); height: max(8px, 1.2vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.2); }
-        .player-indicator.connected .dot { animation: pulse 2s ease-in-out infinite; border: none; }
-        .player-indicator.connected { color: rgba(255, 255, 255, 0.9); }
-        .player-indicator.reserved .dot { opacity: 0.5; }
-        .player-indicator .dot.player-0 { background: #4CAF50; box-shadow: 0 0 max(6px, 1vmin) rgba(76, 175, 80, 0.4); }
-        .player-indicator .dot.player-1 { background: #2196F3; box-shadow: 0 0 max(6px, 1vmin) rgba(33, 150, 243, 0.4); }
-        .player-indicator .dot.player-2 { background: #9C27B0; box-shadow: 0 0 max(6px, 1vmin) rgba(156, 39, 176, 0.4); }
-        .player-indicator .dot.player-3 { background: #FFC107; box-shadow: 0 0 max(6px, 1vmin) rgba(255, 193, 7, 0.4); }
     </style>
 </head>
 <body>
@@ -94,7 +83,6 @@
     <div class="controllers" id="controllers"></div>
     <div class="status connecting" id="status">Connecting...</div>
     <div id="pauseOverlay"></div>
-    <div id="playerStatus" class="hidden"></div>
     <game-menu id="gameMenu" mode="screen"></game-menu>
 
     <script type="module">
@@ -210,19 +198,17 @@
         function updateScreenUI() {
             switch (currentState) {
                 case State.IDLE:
-                    gameMenu?.show(); hidePauseOverlay(); showQRCode(); showPlayerStatus(); showStatus(); break;
+                    gameMenu?.show(); hidePauseOverlay(); showQRCode(); showStatus(); break;
                 case State.LOADING:
                     gameMenu?.setLoadingText(`Loading ${pendingROM?.name || 'game'}...`);
-                    gameMenu?.showLoading(); hidePauseOverlay(); hideQRCode(); hidePlayerStatus(); hideStatus(); break;
+                    gameMenu?.showLoading(); hidePauseOverlay(); hideQRCode(); hideStatus(); break;
                 case State.PLAYING:
-                    gameMenu?.hide(); hidePlayerStatus(); hideStatus();
+                    gameMenu?.hide(); hideStatus();
                     if (isPaused) { showPauseOverlay(); showQRCode(); } else { hidePauseOverlay(); hideQRCode(); }
                     break;
             }
         }
 
-        function showPlayerStatus() { document.getElementById('playerStatus').classList.remove('hidden'); }
-        function hidePlayerStatus() { document.getElementById('playerStatus').classList.add('hidden'); }
         function showStatus() { document.getElementById('status').classList.remove('hidden'); }
         function hideStatus() { document.getElementById('status').classList.add('hidden'); }
 
@@ -348,6 +334,14 @@
                     }
                     break;
 
+                case 'menuSetting':
+                    // Apply menu setting from controller (gameHeight, threads) and persist
+                    if (msg.setting && gameMenu) {
+                        gameMenu.applySetting(msg.setting, msg.value);
+                        console.log('Menu setting applied from controller:', msg.setting, '=', msg.value);
+                    }
+                    break;
+
                 default:
                     // Handle input and other commands from controller (WebSocket fallback)
                     if (currentState === State.PLAYING && window.EJS_emulator?.handler && msg.method) {
@@ -386,6 +380,15 @@
 
             updateControllerDisplay();
             wsManager?.send({ ...getStateInfo(), targetController: controllerId });
+
+            // Send current menu settings to the newly connected controller
+            const gameHeight = parseInt(localStorage.getItem('retrobox_gameHeight') || '100');
+            const threads = localStorage.getItem('retrobox_threads') === 'true';
+            wsManager?.send({
+                type: 'menuSettingsSync',
+                targetController: controllerId,
+                settings: { gameHeight, threads }
+            });
         }
 
         function handleControllerDisconnected(controllerId, playerNum) {
@@ -520,15 +523,13 @@
 
         function updateControllerDisplay() {
             const container = document.getElementById('controllers');
-            const playerStatus = document.getElementById('playerStatus');
             container.innerHTML = '';
-            playerStatus.innerHTML = '';
 
             // Build player map from peers
             const playerMap = new Map();
             for (const [id, peer] of peers) {
                 const isReserved = pendingRemoval.has(id);
-                playerMap.set(peer.playerNum, { connected: !isReserved, rtt: peer.rtt });
+                playerMap.set(peer.playerNum, { connected: !isReserved, reserved: isReserved, rtt: peer.rtt });
             }
 
             for (let i = 0; i < 4; i++) {
@@ -547,15 +548,10 @@
                     }
                 }
                 container.appendChild(dot);
-
-                // Centered player status indicators
-                const indicator = document.createElement('div');
-                indicator.className = 'player-indicator';
-                if (info?.connected) indicator.classList.add('connected');
-                else if (info) indicator.classList.add('reserved');
-                indicator.innerHTML = `<span class="dot ${info ? 'player-' + i : ''}"></span><span>P${i + 1}</span>`;
-                playerStatus.appendChild(indicator);
             }
+
+            // Update game menu player status
+            gameMenu?.updatePlayerStatus(playerMap);
         }
 
         // Initialize
@@ -579,7 +575,6 @@
             await generateQRCode();
             showQRCode();
             updateControllerDisplay();
-            showPlayerStatus();
         }
         init();
 
@@ -644,6 +639,14 @@
         // GAME LOADING
         // ============================================
         function loadROM(gameData) {
+            // Persist settings to localStorage (works for both screen and controller-initiated games)
+            if (gameData.gameHeight != null) {
+                localStorage.setItem('retrobox_gameHeight', gameData.gameHeight);
+            }
+            if (gameData.threads != null) {
+                localStorage.setItem('retrobox_threads', gameData.threads);
+            }
+
             pendingROM = {
                 source: gameData.romSource,
                 name: gameData.romName.split('.').slice(0, -1).join('.'),
