@@ -3,7 +3,8 @@ WORKDIR /app
 
 # Copy server and HTML files only
 COPY server.ts ./
-COPY *.html ./
+COPY *.html *.js ./
+
 
 EXPOSE 3333
 
