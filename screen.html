@@ -856,9 +856,6 @@
                         else showAudioIndicator();
                     }
                 }, 500);
-                setTimeout(() => {
-                    if (currentState === State.PLAYING) loadState(0);
-                }, 1500);
             };
 
             window.EJS_onCommand = function(evt) {
