@@ -97,11 +97,17 @@
     <div id="playerStatus" class="hidden"></div>
     <game-menu id="gameMenu" mode="screen"></game-menu>
 
-    <script type="text/javascript">
+    <script type="module">
+        import {
+            P2P_PING, P2P_DIGITAL, P2P_ANALOG, P2P_TOGGLE_FPS, P2P_SAVE_STATE,
+            P2P_LOAD_STATE, P2P_RESET_MENU, P2P_HARD_REFRESH, P2P_STATE_UPDATE,
+            P2P_RTT_ECHO, P2P_STATES, HEARTBEAT_INTERVAL, WebSocketManager,
+            IceCandidateBuffer, loadGameMenuComponent
+        } from './common.js';
+
         // ============================================
         // CONSTANTS
         // ============================================
-        const HEARTBEAT_INTERVAL = 3000;
         const GRACE_PERIOD = 7500;
 
         // ============================================
@@ -113,24 +119,18 @@
         let isPaused = false;
         let gameMenu = null;
 
-        let ws = null;
+        let wsManager = null;
         let screenId = null;
-        let heartbeatInterval = null;
         let loaderScript = null; // Track the loader script element
 
         // ============================================
         // WEBRTC P2P STATE
         // ============================================
-        const peers = new Map(); // controllerId -> { pc, channel, playerNum, rtt }
+        const peers = new Map(); // controllerId -> { pc, channel, playerNum, rtt, iceBuffer }
         const pendingRemoval = new Map(); // controllerId -> timeout
-        const echoBuf = new Uint32Array(1); // Pre-allocated echo buffer (Worker 3 pattern)
-        let iceCandidateBuffers = new Map(); // controllerId -> [candidates]
-
-        // P2P Method IDs
-        const P2P_PING = 0, P2P_DIGITAL = 1, P2P_ANALOG = 2;
-        const P2P_TOGGLE_FPS = 3, P2P_SAVE_STATE = 4, P2P_LOAD_STATE = 5;
-        const P2P_RESET_MENU = 6, P2P_HARD_REFRESH = 7;
-        const P2P_STATE_UPDATE = 129;
+        // Pre-allocated echo buffer: [messageType:1][timestamp:4] = 5 bytes
+        const echoBuf = new ArrayBuffer(5);
+        const echoView = new DataView(echoBuf);
 
         // P2P stateUpdate sender
         const stateUpdateBuf = new ArrayBuffer(256);
@@ -171,13 +171,13 @@
         function broadcastToControllers(msg) {
             // Send stateUpdate via P2P for low latency
             if (msg.type === 'stateUpdate') {
-                const stateEnum = msg.state === 'game-selection' ? 0 : msg.state === 'game-pending' ? 1 : 2;
+                const stateEnum = P2P_STATES.indexOf(msg.state);
                 for (const [, peer] of peers) {
-                    sendP2PStateUpdate(peer, stateEnum, msg.isPaused, msg.core, msg.gameName);
+                    sendP2PStateUpdate(peer, stateEnum >= 0 ? stateEnum : 0, msg.isPaused, msg.core, msg.gameName);
                 }
             }
             // Always also send via WS (fallback for controllers without P2P)
-            if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+            wsManager?.send(msg);
         }
 
         function updateScreenUI() {
@@ -211,7 +211,7 @@
 
         function setPause(paused) {
             if (currentState !== State.PLAYING || isPaused === paused) return;
-            if (paused) EJS_emulator?.pause?.(); else EJS_emulator?.play?.();
+            if (paused) window.EJS_emulator?.pause?.(); else window.EJS_emulator?.play?.();
             syncPauseUI(paused);
         }
 
@@ -227,40 +227,24 @@
             el.textContent = text;
         }
 
-        function getWebSocketUrl() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            return `${protocol}//${window.location.host}/ws`;
-        }
-
         function connectWebSocket() {
-            if (ws?.readyState === WebSocket.OPEN) return;
-
             updateStatus('connecting', 'Connecting...');
-            ws = new WebSocket(getWebSocketUrl());
-
-            ws.onopen = () => {
-                console.log('WebSocket connected, registering as screen:', screenId);
-                ws.send(JSON.stringify({ type: 'register-screen', screenId }));
-
-                clearInterval(heartbeatInterval);
-                heartbeatInterval = setInterval(() => {
-                    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'heartbeat' }));
-                }, HEARTBEAT_INTERVAL);
-            };
-
-            ws.onmessage = e => handleMessage(JSON.parse(e.data));
-
-            ws.onclose = () => {
-                console.log('WebSocket disconnected, reconnecting...');
-                updateStatus('connecting', 'Reconnecting...');
-                clearInterval(heartbeatInterval);
-                setTimeout(connectWebSocket, 2000);
-            };
-
-            ws.onerror = err => {
-                console.error('WebSocket error:', err);
-                updateStatus('error', 'Connection error');
-            };
+            wsManager = new WebSocketManager({
+                onOpen: () => {
+                    console.log('WebSocket connected, registering as screen:', screenId);
+                    wsManager.send({ type: 'register-screen', screenId });
+                },
+                onMessage: handleMessage,
+                onClose: () => {
+                    console.log('WebSocket disconnected, reconnecting...');
+                    updateStatus('connecting', 'Reconnecting...');
+                },
+                onError: err => {
+                    console.error('WebSocket error:', err);
+                    updateStatus('error', 'Connection error');
+                }
+            });
+            wsManager.connect();
         }
 
         function handleMessage(msg) {
@@ -316,9 +300,9 @@
 
                 case 'setSetting':
                     // Apply setting from controller
-                    if (EJS_emulator?.handler && msg.setting) {
+                    if (window.EJS_emulator?.handler && msg.setting) {
                         try {
-                            EJS_emulator.handler.exec('settings.change', { setting: msg.setting, value: msg.value });
+                            window.EJS_emulator.handler.exec('settings.change', { setting: msg.setting, value: msg.value });
                             console.log('Setting applied from controller:', msg.setting, '=', msg.value);
                         } catch (e) { console.error('Setting error:', e); }
                     }
@@ -326,22 +310,22 @@
 
                 case 'getSettings':
                     // Send current settings to requesting controller (server adds controllerId to msg)
-                    if (EJS_emulator?.settings && msg.controllerId) {
-                        ws.send(JSON.stringify({
+                    if (window.EJS_emulator?.settings && msg.controllerId) {
+                        wsManager?.send({
                             type: 'settingsSync',
                             targetController: msg.controllerId,
-                            settings: EJS_emulator.settings,
+                            settings: window.EJS_emulator.settings,
                             core: pendingROM?.core
-                        }));
+                        });
                         console.log('Sent settings sync to controller:', msg.controllerId);
                     }
                     break;
 
                 default:
                     // Handle input and other commands from controller (WebSocket fallback)
-                    if (currentState === State.PLAYING && EJS_emulator?.handler && msg.method) {
+                    if (currentState === State.PLAYING && window.EJS_emulator?.handler && msg.method) {
                         try {
-                            EJS_emulator.handler.exec(msg.method, msg.params);
+                            window.EJS_emulator.handler.exec(msg.method, msg.params);
                             // Log non-input commands for debugging
                             if (msg.method !== 'input.simulate') {
                                 console.log('Command from controller:', msg.method, msg.params);
@@ -367,11 +351,11 @@
 
             // Track peer (P2P connection created on offer)
             if (!peers.has(controllerId)) {
-                peers.set(controllerId, { pc: null, channel: null, playerNum, rtt: 0 });
+                peers.set(controllerId, { pc: null, channel: null, playerNum, rtt: 0, iceBuffer: new IceCandidateBuffer() });
             }
 
             updateControllerDisplay();
-            ws.send(JSON.stringify({ ...getStateInfo(), targetController: controllerId }));
+            wsManager?.send({ ...getStateInfo(), targetController: controllerId });
         }
 
         function handleControllerDisconnected(controllerId, playerNum) {
@@ -384,7 +368,6 @@
                 if (peer?.pc) try { peer.pc.close(); } catch {}
                 peers.delete(controllerId);
                 pendingRemoval.delete(controllerId);
-                iceCandidateBuffers.delete(controllerId);
                 updateControllerDisplay();
 
                 // Auto-pause when no controllers
@@ -409,16 +392,16 @@
 
             let peer = peers.get(controllerId);
             if (!peer) {
-                peer = { pc: null, channel: null, playerNum: getNextPlayerNum(), rtt: 0 };
+                peer = { pc: null, channel: null, playerNum: getNextPlayerNum(), rtt: 0, iceBuffer: new IceCandidateBuffer() };
                 peers.set(controllerId, peer);
             }
 
             // Close existing connection if any
             if (peer.pc) try { peer.pc.close(); } catch {}
+            peer.iceBuffer.reset();
 
             const pc = new RTCPeerConnection({ iceServers: [] });
             peer.pc = pc;
-            iceCandidateBuffers.set(controllerId, { buffer: [], remoteDescSet: false });
 
             pc.ondatachannel = e => {
                 console.log('[WebRTC] DataChannel received from:', controllerId);
@@ -432,9 +415,7 @@
             };
 
             pc.onicecandidate = e => {
-                if (e.candidate && ws?.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'ice-candidate', to: controllerId, candidate: e.candidate }));
-                }
+                if (e.candidate) wsManager?.send({ type: 'ice-candidate', to: controllerId, candidate: e.candidate });
             };
 
             pc.onconnectionstatechange = () => {
@@ -442,31 +423,19 @@
             };
 
             pc.setRemoteDescription(offer).then(() => {
-                const iceData = iceCandidateBuffers.get(controllerId);
-                if (iceData) {
-                    iceData.remoteDescSet = true;
-                    iceData.buffer.forEach(c => pc.addIceCandidate(c).catch(() => {}));
-                    iceData.buffer = [];
-                }
+                peer.iceBuffer.flush(pc);
                 return pc.createAnswer();
             }).then(answer => {
                 pc.setLocalDescription(answer);
-                ws.send(JSON.stringify({ type: 'webrtc-answer', to: controllerId, answer }));
+                wsManager?.send({ type: 'webrtc-answer', to: controllerId, answer });
                 console.log('[WebRTC] Sent answer to:', controllerId);
             });
         }
 
         function handleRemoteIceCandidate(controllerId, candidate) {
             const peer = peers.get(controllerId);
-            const iceData = iceCandidateBuffers.get(controllerId);
-
             if (!peer?.pc) return;
-
-            if (iceData?.remoteDescSet) {
-                peer.pc.addIceCandidate(candidate).catch(() => {});
-            } else if (iceData) {
-                iceData.buffer.push(candidate);
-            }
+            peer.iceBuffer.add(candidate, peer.pc);
         }
 
         function handleP2PMessage(controllerId, data) {
@@ -494,11 +463,12 @@
             // Input messages (1=digital, 2=analog) - echo timestamp for RTT
             const ts = view.getUint32(1, false);
             if (peer?.channel?.readyState === 'open') {
-                echoBuf[0] = ts;
-                peer.channel.send(echoBuf.buffer);
+                echoView.setUint8(0, P2P_RTT_ECHO);
+                echoView.setUint32(1, ts, false);
+                peer.channel.send(echoBuf);
             }
 
-            if (currentState !== State.PLAYING || !EJS_emulator?.handler) return;
+            if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
 
             const button = view.getUint8(5);
             const player = peer?.playerNum ?? 0;
@@ -507,7 +477,7 @@
             const state = isAnalog ? 'analog' : (value === 1 ? 'pressed' : 'released');
 
             try {
-                EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
+                window.EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
             } catch (e) {
                 console.error('P2P input error:', e);
             }
@@ -616,7 +586,7 @@
             qrDisplay.style.width = qrDisplay.style.height = size + 'px';
             document.getElementById('qrContainer').style.maxWidth = (size + 40) + 'px';
 
-            new QRCode(qrDisplay, { text: url, width: size, height: size, colorDark: '#000', colorLight: '#FFF', correctLevel: QRCode.CorrectLevel.H });
+            new window.QRCode(qrDisplay, { text: url, width: size, height: size, colorDark: '#000', colorLight: '#FFF', correctLevel: window.QRCode.CorrectLevel.H });
             qrUrl.textContent = url;
             qrUrl.href = url;
 
@@ -655,11 +625,11 @@
 
             // Clean up emulator if it exists
             try {
-                if (window.EJS_emulator) {
-                    EJS_emulator.pause?.();
-                    const ctx = EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
+                if (window.window.EJS_emulator) {
+                    window.EJS_emulator.pause?.();
+                    const ctx = window.EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
                     if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
-                    window.EJS_emulator = null;
+                    window.window.EJS_emulator = null;
                 }
             } catch (e) { console.warn('Emulator cleanup error:', e); }
 
@@ -687,36 +657,36 @@
         }
 
         async function saveState(slot) {
-            if (!EJS_emulator?.gameManager || !EJS_emulator?.storage?.states) return;
+            if (!window.EJS_emulator?.gameManager || !window.EJS_emulator?.storage?.states) return;
             try {
-                const state = EJS_emulator.gameManager.getState();
-                const key = EJS_emulator.getBaseFileName() + `.state${slot}`;
-                await EJS_emulator.storage.states.put(key, state);
-                EJS_emulator.displayMessage?.(EJS_emulator.localization?.("SAVED STATE TO BROWSER") || "State saved");
+                const state = window.EJS_emulator.gameManager.getState();
+                const key = window.EJS_emulator.getBaseFileName() + `.state${slot}`;
+                await window.EJS_emulator.storage.states.put(key, state);
+                window.EJS_emulator.displayMessage?.(window.EJS_emulator.localization?.("SAVED STATE TO BROWSER") || "State saved");
             } catch (e) { console.warn('Save state failed:', e); }
         }
 
         async function loadState(slot) {
-            if (!EJS_emulator?.gameManager || !EJS_emulator?.storage?.states) return;
+            if (!window.EJS_emulator?.gameManager || !window.EJS_emulator?.storage?.states) return;
             try {
-                const key = EJS_emulator.getBaseFileName() + `.state${slot}`;
-                const state = await EJS_emulator.storage.states.get(key);
+                const key = window.EJS_emulator.getBaseFileName() + `.state${slot}`;
+                const state = await window.EJS_emulator.storage.states.get(key);
                 if (state) {
-                    EJS_emulator.gameManager.loadState(state);
-                    EJS_emulator.displayMessage?.(EJS_emulator.localization?.("LOADED STATE FROM BROWSER") || "State loaded");
+                    window.EJS_emulator.gameManager.loadState(state);
+                    window.EJS_emulator.displayMessage?.(window.EJS_emulator.localization?.("LOADED STATE FROM BROWSER") || "State loaded");
                 } else {
-                    EJS_emulator.displayMessage?.("No saved state found");
+                    window.EJS_emulator.displayMessage?.("No saved state found");
                 }
             } catch (e) { console.warn('Load state failed:', e); }
         }
 
         let fpsVisible = false; // Track FPS state (starts hidden by default)
         function toggleFPS() {
-            if (!EJS_emulator?.gameManager) return;
+            if (!window.EJS_emulator?.gameManager) return;
             fpsVisible = !fpsVisible;
             const newValue = fpsVisible ? "show" : "hide";
-            EJS_emulator.gameManager.setVariable("fps", newValue);
-            EJS_emulator.displayMessage?.(`FPS: ${fpsVisible ? "ON" : "OFF"}`);
+            window.EJS_emulator.gameManager.setVariable("fps", newValue);
+            window.EJS_emulator.displayMessage?.(`FPS: ${fpsVisible ? "ON" : "OFF"}`);
             console.log('FPS toggled:', newValue);
         }
 
@@ -729,8 +699,8 @@
             document.addEventListener(evt, function onInteraction() {
                 hasUserInteraction = true;
                 hideAudioIndicator();
-                const ctx = EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
-                if (ctx?.state === 'suspended') ctx.resume().then(() => EJS_emulator?.setVolume?.(1));
+                const ctx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
+                if (ctx?.state === 'suspended') ctx.resume().then(() => window.EJS_emulator?.setVolume?.(1));
             }, { passive: true });
         });
 
@@ -826,7 +796,7 @@
                 console.log('EmulatorJS ready');
                 function autoStart() {
                     if (currentState !== State.LOADING) return; // Cancelled
-                    if (EJS_emulator?.started) return;
+                    if (window.EJS_emulator?.started) return;
                     const btn = document.querySelector('#game .ejs_start_button');
                     if (btn?.offsetParent) { btn.click(); return; }
                     setTimeout(autoStart, 200);
@@ -845,7 +815,7 @@
                 if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
                 setTimeout(() => {
                     if (currentState !== State.PLAYING) return; // State changed
-                    const ctx = EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
+                    const ctx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
                     if (ctx?.state === 'suspended') {
                         if (hasUserInteraction) ctx.resume().catch(() => showAudioIndicator());
                         else showAudioIndicator();
@@ -884,25 +854,9 @@
         // ============================================
         // GAME MENU LOADER
         // ============================================
-        async function loadGameMenuComponent() {
-            try {
-                const res = await fetch('game-menu.html');
-                const html = await res.text();
-                const doc = new DOMParser().parseFromString(html, 'text/html');
-                const script = doc.querySelector('script[type="module"]');
-                if (script) {
-                    const el = document.createElement('script');
-                    el.type = 'module';
-                    el.textContent = script.textContent;
-                    document.head.appendChild(el);
-                    await customElements.whenDefined('game-menu');
-                    gameMenu = document.getElementById('gameMenu');
-                    gameMenu?.addEventListener('gamestart', e => loadROM(e.detail));
-                    gameMenu?.addEventListener('resetToMenu', () => resetToGameMenu());
-                }
-            } catch(e) { console.error('Failed to load game menu:', e); }
-        }
-        loadGameMenuComponent();
+        (async () => {
+            gameMenu = await loadGameMenuComponent(loadROM, resetToGameMenu);
+        })();
     </script>
 </body>
 </html>
