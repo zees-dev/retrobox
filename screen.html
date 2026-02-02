@@ -181,6 +181,7 @@
         let screenId = null;
         let loaderScript = null; // Track the loader script element
         let wakeLock = null; // Wake lock to prevent screen off when controller connected
+        let ejsScriptsLoaded = false; // Track if EmulatorJS scripts have been loaded (can't be unloaded)
 
         // Wake lock management
         async function acquireWakeLock() {
@@ -472,10 +473,11 @@
             const gameHeight = parseInt(localStorage.getItem('retrobox_gameHeight') || '100');
             const threads = localStorage.getItem('retrobox_threads') === 'true';
             const debugMode = localStorage.getItem('retrobox_debugMode') === 'true';
+            const loadOnStart = localStorage.getItem('retrobox_loadOnStart') === 'true';
             wsManager?.send({
                 type: 'menuSettingsSync',
                 targetController: controllerId,
-                settings: { gameHeight, threads, debugMode }
+                settings: { gameHeight, threads, debugMode, loadOnStart }
             });
         }
 
@@ -663,6 +665,28 @@
             await generateQRCode();
             showQRCode();
             updateControllerDisplay();
+
+            // Check for pending game from reload (when switching games)
+            const pendingGame = sessionStorage.getItem('retrobox_pendingGame');
+            if (pendingGame) {
+                sessionStorage.removeItem('retrobox_pendingGame');
+                try {
+                    const gameData = JSON.parse(pendingGame);
+                    // Small delay to ensure everything is initialized
+                    setTimeout(() => {
+                        loadROM({
+                            romSource: gameData.source,
+                            romName: gameData.name + '.zip', // loadROM expects extension
+                            core: gameData.core,
+                            biosSource: gameData.biosSource,
+                            gameHeight: gameData.gameHeight,
+                            threads: gameData.threads
+                        });
+                    }, 100);
+                } catch (e) {
+                    console.warn('Failed to restore pending game:', e);
+                }
+            }
         }
         init();
 
@@ -762,37 +786,49 @@
         function resetToGameMenu() {
             saveState(0);
 
-            // Clean up emulator if it exists
-            try {
-                if (window.window.EJS_emulator) {
-                    window.EJS_emulator.pause?.();
-                    const ctx = window.EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
-                    if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
-                    window.window.EJS_emulator = null;
+            // Wait for save to complete before cleanup
+            setTimeout(() => {
+                // Clean up emulator if it exists
+                try {
+                    if (window.window.EJS_emulator) {
+                        window.EJS_emulator.pause?.();
+                        const ctx = window.EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
+                        if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
+                        window.window.EJS_emulator = null;
+                    }
+                } catch (e) { console.warn('Emulator cleanup error:', e); }
+
+                // Remove loader script to stop any pending load
+                if (loaderScript) {
+                    loaderScript.remove();
+                    loaderScript = null;
                 }
-            } catch (e) { console.warn('Emulator cleanup error:', e); }
 
-            // Remove loader script to stop any pending load
-            if (loaderScript) {
-                loaderScript.remove();
-                loaderScript = null;
-            }
+                // Remove all EmulatorJS-injected scripts to prevent "already declared" errors
+                const ejsScripts = document.querySelectorAll('script[src*="EmulatorJS/data/"]');
+                ejsScripts.forEach(s => s.remove());
 
-            // Clear global EmulatorJS config to prevent stale state
-            const ejsGlobals = ['EJS_player', 'EJS_gameUrl', 'EJS_gameName', 'EJS_core', 'EJS_biosUrl',
-                'EJS_ready', 'EJS_onGameStart', 'EJS_onCommand', 'EJS_startOnLoaded'];
-            ejsGlobals.forEach(key => { try { delete window[key]; } catch {} });
+                // Clear global EmulatorJS identifiers to allow re-declaration
+                const ejsIdentifiers = ['EJS_CommandHandler', 'HistoryManager', 'EmulatorJS', 'EJS_STORAGE',
+                    'GamepadHandler', 'EJS_GameManager', 'EJSCompression'];
+                ejsIdentifiers.forEach(key => { try { delete window[key]; } catch {} });
 
-            const container = document.querySelector('.game-container');
-            const gameEl = document.getElementById('game');
-            gameEl.innerHTML = '';
-            gameEl.style.height = gameEl.style.width = '';
-            container.style.height = container.style.width = '';
+                // Clear global EmulatorJS config to prevent stale state
+                const ejsGlobals = ['EJS_player', 'EJS_gameUrl', 'EJS_gameName', 'EJS_core', 'EJS_biosUrl',
+                    'EJS_ready', 'EJS_onGameStart', 'EJS_onCommand', 'EJS_startOnLoaded'];
+                ejsGlobals.forEach(key => { try { delete window[key]; } catch {} });
 
-            pendingROM = null;
-            isPaused = false;
-            setState(State.IDLE);
-            broadcastToControllers({ type: 'stateUpdate', state: 'game-selection', gameName: null, isPaused: false });
+                const container = document.querySelector('.game-container');
+                const gameEl = document.getElementById('game');
+                gameEl.innerHTML = '';
+                gameEl.style.height = gameEl.style.width = '';
+                container.style.height = container.style.width = '';
+
+                pendingROM = null;
+                isPaused = false;
+                setState(State.IDLE);
+                broadcastToControllers({ type: 'stateUpdate', state: 'game-selection', gameName: null, isPaused: false });
+            }, 1000);
         }
 
         async function saveState(slot) {
@@ -960,6 +996,12 @@
                         else showAudioIndicator();
                     }
                 }, 500);
+                // Auto-load previous save state if "Load on start" setting is enabled
+                if (localStorage.getItem('retrobox_loadOnStart') === 'true') {
+                    setTimeout(() => {
+                        if (currentState === State.PLAYING) loadState(0);
+                    }, 2500);
+                }
             };
 
             window.EJS_onCommand = function(evt) {
@@ -976,6 +1018,28 @@
                 }
             };
 
+            // If EmulatorJS scripts were already loaded, we must reload the page
+            // because const/let declarations cannot be re-declared
+            if (ejsScriptsLoaded) {
+                // Can only persist URL sources, not File objects
+                if (typeof pendingROM.source !== 'string') {
+                    alert('Cannot switch games with uploaded files. Please select from presets or use a URL.');
+                    setState(State.IDLE);
+                    return;
+                }
+                // Store game data in sessionStorage for reload
+                sessionStorage.setItem('retrobox_pendingGame', JSON.stringify({
+                    source: pendingROM.source,
+                    name: pendingROM.name,
+                    core: pendingROM.core,
+                    biosSource: typeof pendingROM.biosSource === 'string' ? pendingROM.biosSource : null,
+                    gameHeight: pendingROM.gameHeight,
+                    threads: pendingROM.threads
+                }));
+                window.location.reload();
+                return;
+            }
+
             // Remove any existing loader script before adding new one
             if (loaderScript) {
                 loaderScript.remove();
@@ -984,6 +1048,7 @@
 
             loaderScript = document.createElement('script');
             loaderScript.src = 'EmulatorJS/data/loader.js';
+            loaderScript.onload = () => { ejsScriptsLoaded = true; };
             document.body.appendChild(loaderScript);
         }
 

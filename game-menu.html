@@ -22,6 +22,7 @@
                 this._threads = false;
                 this._useUrl = false;
                 this._debugMode = false;
+                this._loadOnStart = false;
                 this._showingSettings = false;
                 this.gamePresets = {};
 
@@ -53,6 +54,7 @@
                 this.threadsToggle = this.shadowRoot.getElementById('threadsToggle');
                 this.useUrlToggle = this.shadowRoot.getElementById('useUrlToggle');
                 this.debugModeToggle = this.shadowRoot.getElementById('debugModeToggle');
+                this.loadOnStartToggle = this.shadowRoot.getElementById('loadOnStartToggle');
                 this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
                 this.presetSection = this.shadowRoot.getElementById('presetSection');
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
@@ -593,6 +595,19 @@
                                 </div>
                             </div>
 
+                            <div class="setting-row setting-persisted">
+                                <div class="toggle-row">
+                                    <div class="toggle-info">
+                                        <span class="setting-label">Load on start</span>
+                                        <span class="toggle-description">Auto-load previous save state on game start</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="loadOnStartToggle">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <div class="setting-row">
                                 <div class="toggle-row">
                                     <div class="toggle-info">
@@ -997,6 +1012,16 @@
                     }
                     this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: e.target.checked }, bubbles: true }));
                 };
+
+                // Load on start toggle
+                this.loadOnStartToggle.onchange = (e) => {
+                    this._loadOnStart = e.target.checked;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_loadOnStart', e.target.checked);
+                    } else if (this._mode === 'controller') {
+                        this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'loadOnStart', value: e.target.checked }, bubbles: true }));
+                    }
+                };
             }
 
             updateManualConfigVisibility() {
@@ -1044,6 +1069,13 @@
                     // Emit event so screen.html can start/stop buffering
                     this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: this._debugMode }, bubbles: true }));
                 }
+
+                // Load "load on start" setting
+                const savedLoadOnStart = localStorage.getItem('retrobox_loadOnStart');
+                if (savedLoadOnStart !== null) {
+                    this._loadOnStart = savedLoadOnStart === 'true';
+                    this.loadOnStartToggle.checked = this._loadOnStart;
+                }
             }
 
             // Apply setting from external source (e.g., controller via WebSocket)
@@ -1069,6 +1101,12 @@
                         localStorage.setItem('retrobox_debugMode', this._debugMode);
                     }
                     this.dispatchEvent(new CustomEvent('debugmodechange', { detail: { enabled: this._debugMode }, bubbles: true }));
+                } else if (setting === 'loadOnStart') {
+                    this._loadOnStart = value === true || value === 'true';
+                    this.loadOnStartToggle.checked = this._loadOnStart;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_loadOnStart', this._loadOnStart);
+                    }
                 }
             }
 

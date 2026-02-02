@@ -414,6 +414,7 @@
         let emulatorLoaded = false;
         let currentCore = null;
         let gameMenu = null;
+        let pendingMenuSettings = null; // Buffer for settings received before gameMenu is ready
 
         const urlParams = new URLSearchParams(window.location.search);
         const screenId = urlParams.get('screen');
@@ -568,6 +569,35 @@
             wsManager?.send(msg);
         }
 
+        // Re-registration logic for when screen reconnects
+        let reregisterInterval = null;
+        function tryReregister(preferredPlayerNum = null) {
+            if (reregisterInterval) clearInterval(reregisterInterval);
+
+            const attemptRegister = () => {
+                if (!wsManager?.isOpen) return;
+                if (playerNumber !== null) {
+                    // Already re-registered
+                    clearInterval(reregisterInterval);
+                    reregisterInterval = null;
+                    return;
+                }
+                console.log('Attempting to re-register with screen...');
+                const registerMsg = { type: 'register-controller', controllerId, screenId };
+                // Try to get the same player slot back
+                if (preferredPlayerNum !== null) {
+                    registerMsg.requestedPlayerNum = preferredPlayerNum;
+                } else if (requestedPlayer !== null && requestedPlayer >= 1 && requestedPlayer <= 4) {
+                    registerMsg.requestedPlayerNum = requestedPlayer - 1;
+                }
+                wsManager.send(registerMsg);
+            };
+
+            // Try immediately, then every 500ms
+            attemptRegister();
+            reregisterInterval = setInterval(attemptRegister, 500);
+        }
+
         function updateStatus(state, playerNum = null, errorMsg = null) {
             const playerStatus = document.getElementById('playerStatus');
             const dot = document.getElementById('statusDot');
@@ -622,6 +652,11 @@
                     console.log('WebSocket disconnected, reconnecting...');
                     updateStatus('connecting');
                     playerNumber = null;
+                    // Clear re-registration interval since WS will auto-reconnect and re-register
+                    if (reregisterInterval) {
+                        clearInterval(reregisterInterval);
+                        reregisterInterval = null;
+                    }
                 },
                 onError: err => console.error('WebSocket error:', err)
             });
@@ -633,6 +668,11 @@
                 case 'registered':
                     playerNumber = msg.playerNum;
                     console.log('Controller registered, Player', playerNumber + 1);
+                    // Clear any pending re-registration attempts
+                    if (reregisterInterval) {
+                        clearInterval(reregisterInterval);
+                        reregisterInterval = null;
+                    }
                     requestWakeLock(); // Keep phone screen on while connected
                     updateStatus('connected', playerNumber);
                     gameMenu?.setWebSocket(wsManager.ws);
@@ -649,20 +689,33 @@
                     break;
 
                 case 'error':
+                    // Ignore "Screen not found" during reconnection attempts
+                    if (msg.error === 'Screen not found' && reregisterInterval) {
+                        // Screen not back yet, will keep retrying
+                        break;
+                    }
                     console.error('Server error:', msg.error);
                     if (msg.code === 'player-slot-taken') {
                         // Player slot already taken - show message and don't reconnect
                         updateStatus('error', null, `P${msg.requestedPlayer} taken`);
+                        if (reregisterInterval) {
+                            clearInterval(reregisterInterval);
+                            reregisterInterval = null;
+                        }
                         wsManager?.disconnect();
                         wsManager = null;
                     }
                     break;
 
                 case 'screen-disconnected':
-                    console.log('Screen disconnected');
+                    console.log('Screen disconnected, will try to reconnect...');
                     updateStatus('connecting');
+                    // Keep playerNumber for reconnection attempt
+                    const savedPlayerNum = playerNumber;
                     playerNumber = null;
                     updateGameMenuPlayerStatus();
+                    // Try to re-register when screen comes back
+                    tryReregister(savedPlayerNum);
                     break;
 
                 case 'stateUpdate':
@@ -690,18 +743,15 @@
                     break;
 
                 case 'menuSettingsSync':
-                    // Apply menu settings (gameHeight, threads, debugMode) from screen to game-menu
-                    if (msg.settings && gameMenu) {
-                        if (msg.settings.gameHeight != null) {
-                            gameMenu.applySetting('gameHeight', msg.settings.gameHeight);
+                    // Apply menu settings (gameHeight, threads, debugMode, loadOnStart) from screen to game-menu
+                    if (msg.settings) {
+                        if (gameMenu) {
+                            applyMenuSettings(msg.settings);
+                        } else {
+                            // Buffer settings until gameMenu is ready
+                            pendingMenuSettings = msg.settings;
+                            console.log('Menu settings buffered (gameMenu not ready):', msg.settings);
                         }
-                        if (msg.settings.threads != null) {
-                            gameMenu.applySetting('threads', msg.settings.threads);
-                        }
-                        if (msg.settings.debugMode != null) {
-                            gameMenu.applySetting('debugMode', msg.settings.debugMode);
-                        }
-                        console.log('Menu settings synced from screen:', msg.settings);
                     }
                     break;
 
@@ -833,11 +883,35 @@
         // Hide game div immediately - game-menu element is already in HTML
         document.getElementById('game').style.display = 'none';
 
+        function applyMenuSettings(settings) {
+            if (!gameMenu) return;
+            if (settings.gameHeight != null) {
+                gameMenu.applySetting('gameHeight', settings.gameHeight);
+            }
+            if (settings.threads != null) {
+                gameMenu.applySetting('threads', settings.threads);
+            }
+            if (settings.debugMode != null) {
+                gameMenu.applySetting('debugMode', settings.debugMode);
+            }
+            if (settings.loadOnStart != null) {
+                gameMenu.applySetting('loadOnStart', settings.loadOnStart);
+            }
+            console.log('Menu settings synced from screen:', settings);
+        }
+
         (async () => {
             gameMenu = await loadGameMenuComponent();
-            if (gameMenu && wsManager?.isOpen) {
-                gameMenu.setWebSocket(wsManager.ws);
-                updateGameMenuPlayerStatus();
+            if (gameMenu) {
+                if (wsManager?.isOpen) {
+                    gameMenu.setWebSocket(wsManager.ws);
+                    updateGameMenuPlayerStatus();
+                }
+                // Apply any buffered settings that arrived before gameMenu was ready
+                if (pendingMenuSettings) {
+                    applyMenuSettings(pendingMenuSettings);
+                    pendingMenuSettings = null;
+                }
             }
             // Forward setting changes to screen via WebSocket
             gameMenu?.addEventListener('settingchange', (e) => {
