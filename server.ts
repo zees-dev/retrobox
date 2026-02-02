@@ -49,9 +49,8 @@ const coiHeaders: Record<string, string> = {
 };
 
 function getHeaders(req: Request): Record<string, string> {
-  const host = req.headers.get("host") || "";
-  const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-  return isLocal ? { ...corsHeaders, ...coiHeaders } : corsHeaders;
+  // COI headers enabled for all connections to support SharedArrayBuffer (threads)
+  return { ...corsHeaders, ...coiHeaders };
 }
 
 function getMimeType(path: string): string {
