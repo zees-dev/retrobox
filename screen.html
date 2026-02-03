@@ -575,6 +575,13 @@
                 case P2P_PING:
                     if (peer) peer.rtt = view.getUint16(5, true);
                     updateControllerDisplay();
+                    // Send RTT echo for ping measurement
+                    const pingTs = view.getUint32(1, false);
+                    if (peer?.channel?.readyState === 'open') {
+                        echoView.setUint8(0, P2P_RTT_ECHO);
+                        echoView.setUint32(1, pingTs, false);
+                        peer.channel.send(echoBuf);
+                    }
                     return;
                 case P2P_TOGGLE_FPS: toggleFPS(); return;
                 case P2P_SAVE_STATE: saveState(view.byteLength > 1 ? view.getUint8(1) : 1); return;
@@ -647,8 +654,13 @@
         // Initialize
         async function init() {
             const urlParams = new URLSearchParams(window.location.search);
+            const isE2E = urlParams.has('e2e');
+            
             if (urlParams.get('host')) {
                 screenId = urlParams.get('host').replace(/\./g, '-');
+            } else if (isE2E) {
+                // E2E tests use a unique random screenId to avoid conflicts with production kiosk
+                screenId = 'e2e-' + Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
             } else {
                 try {
                     const res = await fetch('/api/client-hostname');
@@ -688,7 +700,6 @@
                 }
             }
         }
-        init();
 
         // ============================================
         // QR CODE
@@ -703,15 +714,20 @@
         async function getControllerUrl() {
             if (cachedControllerUrl) return cachedControllerUrl;
             let baseUrl;
-            try {
-                const res = await fetch('/api/network-info');
-                const data = await res.json();
-                if (data.url) baseUrl = `${data.url}/controller.html`;
-            } catch(e) { console.warn('Network info error:', e); }
-            if (!baseUrl) {
-                const url = new URL(window.location.href);
-                url.pathname = url.pathname.replace(/[^/]*$/, 'controller.html');
-                baseUrl = url.toString();
+            
+            // In e2e test mode, use current origin (localhost) to avoid COOP warnings
+            const isE2E = new URLSearchParams(window.location.search).has('e2e');
+            if (isE2E) {
+                baseUrl = `${window.location.origin}/controller.html`;
+            } else {
+                try {
+                    const res = await fetch('/api/network-info');
+                    const data = await res.json();
+                    if (data.url) baseUrl = `${data.url}/controller.html`;
+                } catch(e) { console.warn('Network info error:', e); }
+                if (!baseUrl) {
+                    baseUrl = `${window.location.origin}/controller.html`;
+                }
             }
             cachedControllerUrl = baseUrl + '?screen=' + screenId;
             return cachedControllerUrl;
@@ -724,16 +740,22 @@
             const url = await getControllerUrl();
             const size = calculateQRSize();
 
+            // Set URL first (before QR image generation which may fail)
+            qrUrl.textContent = url;
+            qrUrl.href = url;
+            const containerWidth = size + 20;
+            qrUrl.style.fontSize = Math.max(12, Math.min(Math.floor(containerWidth / 12), 20)) + 'px';
+
             qrDisplay.innerHTML = '';
             qrDisplay.style.width = qrDisplay.style.height = size + 'px';
             document.getElementById('qrContainer').style.maxWidth = (size + 40) + 'px';
 
-            new window.QRCode(qrDisplay, { text: url, width: size, height: size, colorDark: '#000', colorLight: '#FFF', correctLevel: window.QRCode.CorrectLevel.H });
-            qrUrl.textContent = url;
-            qrUrl.href = url;
-
-            const containerWidth = size + 20;
-            qrUrl.style.fontSize = Math.max(12, Math.min(Math.floor(containerWidth / 12), 20)) + 'px';
+            // QR image generation - may fail if library not loaded
+            try {
+                new window.QRCode(qrDisplay, { text: url, width: size, height: size, colorDark: '#000', colorLight: '#FFF', correctLevel: window.QRCode.CorrectLevel.H });
+            } catch (e) {
+                console.warn('QR code generation failed:', e.message);
+            }
 
             qrCodeGenerated = true;
         }
@@ -1051,6 +1073,11 @@
             loaderScript.onload = () => { ejsScriptsLoaded = true; };
             document.body.appendChild(loaderScript);
         }
+
+        // ============================================
+        // INITIALIZE
+        // ============================================
+        init();
 
         // ============================================
         // GAME MENU LOADER

@@ -1,0 +1,15 @@
+{
+  "name": "retrobox",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  },
+  "scripts": {
+    "test": "bunx playwright test -c tests/playwright.config.ts",
+    "test:headed": "bunx playwright test -c tests/playwright.config.ts --headed",
+    "test:ui": "bunx playwright test -c tests/playwright.config.ts --ui",
+    "test:debug": "PWDEBUG=1 bunx playwright test -c tests/playwright.config.ts --headed",
+    "test:report": "bunx playwright show-report test-results/html-report"
+  }
+}

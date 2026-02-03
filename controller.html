@@ -451,6 +451,11 @@
                 console.log('[WebRTC] DataChannel open');
                 document.getElementById('statusDot').classList.add('p2p');
                 lastButtonState.fill(255); // Reset to uninitialized (first message always sends)
+                // Send initial ping to start RTT measurement
+                txView.setUint8(0, P2P_PING);
+                txView.setUint32(1, performance.now() | 0, false);
+                txView.setUint16(5, 0, true); // Initial RTT = 0
+                inputChannel.send(new Uint8Array(txBuf, 0, 7));
             };
 
             inputChannel.onclose = () => {
@@ -471,6 +476,7 @@
                         // RTT echo from screen: [msgType:1][timestamp:4]
                         const echoTs = view.getUint32(1, false);
                         currentRtt = ((performance.now() | 0) - echoTs) & 0xFFFF;
+                        updatePingDisplay(currentRtt);
                         // Send ping report (methodId=0, rtt in bytes 5-6 as uint16 LE)
                         txView.setUint8(0, P2P_PING);
                         txView.setUint32(1, performance.now() | 0, false);
