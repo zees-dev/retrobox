@@ -359,9 +359,9 @@
         import {
             P2P_PING, P2P_DIGITAL, P2P_ANALOG, P2P_TOGGLE_FPS, P2P_SAVE_STATE,
             P2P_LOAD_STATE, P2P_RESET_MENU, P2P_HARD_REFRESH, P2P_STATE_UPDATE,
-            P2P_RTT_ECHO, P2P_STATES, HEARTBEAT_INTERVAL, WebSocketManager,
+            P2P_RTT_ECHO, P2P_INPUT_SNAPSHOT, P2P_STATES, WebSocketManager,
             IceCandidateBuffer, loadGameMenuComponent
-        } from './common.js';
+        } from './common.js?v=20260206';
 
         // ============================================
         // EMULATORJS CONFIG
@@ -426,87 +426,355 @@
         // ============================================
         // WEBRTC P2P (Zero-allocation hot path)
         // ============================================
-        let pc = null, inputChannel = null, currentRtt = 0;
+        // Analog stick axes (indices 16-23 use 0-0x7fff values)
+        const ANALOG_AXES = new Set([16, 17, 18, 19, 20, 21, 22, 23]);
+
+        let pc = null;
+        let inputFastChannel = null;
+        let inputReliableChannel = null;
+        let currentRtt = 0;
+        let reconnectAttempts = 0;
+        let reconnectTimer = null;
+        let pingInterval = null;
+        let snapshotInterval = null;
+        let iceRestartInFlight = false;
+
+        let inputSeq = 0;
+        let snapshotSeq = 0;
+        let lastSnapshotSentAt = 0;
+        let digitalSnapshotDirty = false;
+        let lastPingUiUpdateAt = 0;
+
+        const P2P_PING_INTERVAL_MS = 500;
+        const P2P_PING_UI_UPDATE_MS = 500;
+        const P2P_RECONNECT_BASE_MS = 500;
+        const P2P_RECONNECT_MAX_ATTEMPTS = 5;
+        const P2P_ANALOG_RATE_HZ = 120;
+        const P2P_ANALOG_MIN_INTERVAL_MS = 1000 / P2P_ANALOG_RATE_HZ;
+        const P2P_DIGITAL_SNAPSHOT_ACTIVE_MS = 100;
+        const P2P_DIGITAL_SNAPSHOT_IDLE_MS = 500;
+        const P2P_FAST_BUFFER_HIGH_WATER = 64 * 1024;
+        const P2P_FAST_BUFFER_LOW_WATER = 16 * 1024;
+        const ANALOG_QUANTIZATION_STEP = 64;
+
         const iceBuffer = new IceCandidateBuffer();
 
-        // Pre-allocated send buffer (Worker 3 pattern)
+        // Pre-allocated send buffer.
         const txBuf = new ArrayBuffer(16);
         const txView = new DataView(txBuf);
         const txBytes = new Uint8Array(txBuf);
 
-        // Pre-allocated button state array (zero-allocation pattern)
-        // Buttons 0-23, using 32 for alignment. Value: 0=released, 1=pressed, 255=uninitialized
+        // Buttons 0-31. Value: 0=released, 1=pressed, 255=uninitialized.
         const lastButtonState = new Uint8Array(32);
-        lastButtonState.fill(255); // Mark all as uninitialized (first message always sends)
+        const lastAnalogSentValue = new Int32Array(32);
+        const lastAnalogSentAt = new Float64Array(32);
+        const pendingAnalogState = new Int32Array(32);
+        lastButtonState.fill(255);
+        lastAnalogSentValue.fill(-1);
+        pendingAnalogState.fill(-1);
 
-        function connectP2P() {
+        function nextInputSeq() {
+            inputSeq = (inputSeq + 1) & 0xFFFF;
+            return inputSeq;
+        }
+
+        function quantizeAnalog(value) {
+            return Math.max(0, Math.min(0x7FFF, Math.round((value || 0) / ANALOG_QUANTIZATION_STEP) * ANALOG_QUANTIZATION_STEP));
+        }
+
+        function getReliableChannel() {
+            return inputReliableChannel?.readyState === 'open' ? inputReliableChannel : null;
+        }
+
+        function getFastChannel() {
+            if (inputFastChannel?.readyState === 'open') return inputFastChannel;
+            return getReliableChannel();
+        }
+
+        function hasActiveDigitalInput() {
+            for (let i = 0; i < lastButtonState.length; i++) {
+                if (ANALOG_AXES.has(i)) continue;
+                if (lastButtonState[i] === 1) return true;
+            }
+            return false;
+        }
+
+        function buildDigitalMask() {
+            let mask = 0;
+            for (let i = 0; i < lastButtonState.length; i++) {
+                if (ANALOG_AXES.has(i)) continue;
+                if (lastButtonState[i] === 1) mask = (mask | (1 << i)) >>> 0;
+            }
+            return mask >>> 0;
+        }
+
+        function stopReconnectTimer() {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+        }
+
+        function stopPingInterval() {
+            if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+            }
+        }
+
+        function stopSnapshotInterval() {
+            if (snapshotInterval) {
+                clearInterval(snapshotInterval);
+                snapshotInterval = null;
+            }
+        }
+
+        function stopP2PIntervals() {
+            stopPingInterval();
+            stopSnapshotInterval();
+        }
+
+        function closeP2PConnection() {
+            stopP2PIntervals();
+            stopReconnectTimer();
+            iceRestartInFlight = false;
             if (pc) try { pc.close(); } catch {}
-            pc = new RTCPeerConnection({ iceServers: [] });
-            iceBuffer.reset();
+            pc = null;
+            inputFastChannel = null;
+            inputReliableChannel = null;
+            document.getElementById('statusDot').classList.remove('p2p');
+        }
 
-            inputChannel = pc.createDataChannel('input', { ordered: false, maxRetransmitTime: 50 });
-            inputChannel.binaryType = 'arraybuffer';
+        function sendPing() {
+            const reliable = getReliableChannel();
+            if (!reliable) return false;
+            txView.setUint8(0, P2P_PING);
+            txView.setUint32(1, performance.now() | 0, false);
+            txView.setUint16(5, currentRtt & 0xFFFF, true);
+            reliable.send(new Uint8Array(txBuf, 0, 7));
+            return true;
+        }
 
-            inputChannel.onopen = () => {
-                console.log('[WebRTC] DataChannel open');
-                document.getElementById('statusDot').classList.add('p2p');
-                lastButtonState.fill(255); // Reset to uninitialized (first message always sends)
-                // Send initial ping to start RTT measurement
-                txView.setUint8(0, P2P_PING);
-                txView.setUint32(1, performance.now() | 0, false);
-                txView.setUint16(5, 0, true); // Initial RTT = 0
-                inputChannel.send(new Uint8Array(txBuf, 0, 7));
+        function sendInputSnapshot() {
+            const reliable = getReliableChannel();
+            if (!reliable) return false;
+            snapshotSeq = (snapshotSeq + 1) & 0xFFFF;
+            txView.setUint8(0, P2P_INPUT_SNAPSHOT);
+            txView.setUint16(1, snapshotSeq, true);
+            txView.setUint32(3, buildDigitalMask(), true);
+            reliable.send(new Uint8Array(txBuf, 0, 7));
+            lastSnapshotSentAt = performance.now();
+            digitalSnapshotDirty = false;
+            return true;
+        }
+
+        function startPingInterval() {
+            stopPingInterval();
+            pingInterval = setInterval(() => sendPing(), P2P_PING_INTERVAL_MS);
+            sendPing();
+        }
+
+        function startSnapshotInterval() {
+            stopSnapshotInterval();
+            snapshotInterval = setInterval(() => {
+                const now = performance.now();
+                const cadence = hasActiveDigitalInput() ? P2P_DIGITAL_SNAPSHOT_ACTIVE_MS : P2P_DIGITAL_SNAPSHOT_IDLE_MS;
+                if (digitalSnapshotDirty || (now - lastSnapshotSentAt) >= cadence) {
+                    sendInputSnapshot();
+                }
+            }, 100);
+            sendInputSnapshot();
+        }
+
+        function flushPendingAnalog() {
+            const channel = getFastChannel();
+            if (!channel) return;
+            if (channel === inputFastChannel && inputFastChannel.bufferedAmount > P2P_FAST_BUFFER_LOW_WATER) return;
+            const now = performance.now();
+
+            for (let button = 0; button < pendingAnalogState.length; button++) {
+                const value = pendingAnalogState[button];
+                if (value < 0) continue;
+                if ((now - lastAnalogSentAt[button]) < P2P_ANALOG_MIN_INTERVAL_MS) continue;
+                if (channel === inputFastChannel && inputFastChannel.bufferedAmount > P2P_FAST_BUFFER_HIGH_WATER) break;
+                sendAnalogPacket(channel, button, value, now);
+            }
+        }
+
+        function sendAnalogPacket(channel, button, value, now) {
+            txView.setUint8(0, P2P_ANALOG);
+            txView.setUint32(1, now | 0, false);
+            txView.setUint16(5, nextInputSeq(), true);
+            txBytes[7] = button;
+            txView.setUint16(8, value & 0xFFFF, true);
+            channel.send(new Uint8Array(txBuf, 0, 10));
+            lastAnalogSentAt[button] = now;
+            lastAnalogSentValue[button] = value;
+            pendingAnalogState[button] = -1;
+            return true;
+        }
+
+        async function sendOffer(activePc, iceRestart = false) {
+            const offer = await activePc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+            await activePc.setLocalDescription(offer);
+            if (pc !== activePc || !activePc.localDescription) return;
+            wsManager?.send({
+                type: 'webrtc-offer',
+                offer: activePc.localDescription,
+                iceRestart
+            });
+            console.log('[WebRTC] Sent offer', { iceRestart });
+        }
+
+        function scheduleReconnect(reason) {
+            if (!wsManager?.isOpen) return;
+            if (reconnectAttempts >= P2P_RECONNECT_MAX_ATTEMPTS) return;
+            if (reconnectTimer) return;
+
+            const delay = Math.min(P2P_RECONNECT_BASE_MS * (2 ** reconnectAttempts), 4000) + Math.floor(Math.random() * 200);
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                reconnectAttempts += 1;
+                connectP2P({ reason, resetReconnect: false }).catch(err => {
+                    console.warn('[WebRTC] Reconnect attempt failed:', err);
+                    scheduleReconnect('reconnect-error');
+                });
+            }, delay);
+        }
+
+        function attemptIceRestart(activePc) {
+            if (pc !== activePc) return;
+            if (iceRestartInFlight || !wsManager?.isOpen || activePc.signalingState === 'closed') {
+                scheduleReconnect('ice-restart-unavailable');
+                return;
+            }
+
+            iceRestartInFlight = true;
+            sendOffer(activePc, true).then(() => {
+                setTimeout(() => {
+                    if (pc !== activePc) return;
+                    if (activePc.connectionState !== 'connected') {
+                        scheduleReconnect('ice-restart-timeout');
+                    }
+                }, 1200);
+            }).catch(err => {
+                console.warn('[WebRTC] ICE restart failed:', err);
+                scheduleReconnect('ice-restart-error');
+            }).finally(() => {
+                iceRestartInFlight = false;
+            });
+        }
+
+        function setupDataChannel(activePc, channel, label) {
+            channel.binaryType = 'arraybuffer';
+            if (label === 'fast') {
+                channel.bufferedAmountLowThreshold = P2P_FAST_BUFFER_LOW_WATER;
+                channel.onbufferedamountlow = () => {
+                    if (pc !== activePc) return;
+                    flushPendingAnalog();
+                };
+            }
+
+            channel.onopen = () => {
+                if (pc !== activePc) return;
+                console.log(`[WebRTC] DataChannel open: ${label}`);
+                if (label === 'reliable') {
+                    document.getElementById('statusDot').classList.add('p2p');
+                    reconnectAttempts = 0;
+                    stopReconnectTimer();
+                    lastPingUiUpdateAt = 0;
+                    lastButtonState.fill(255);
+                    lastAnalogSentValue.fill(-1);
+                    pendingAnalogState.fill(-1);
+                    digitalSnapshotDirty = true;
+                    startPingInterval();
+                    startSnapshotInterval();
+                } else {
+                    flushPendingAnalog();
+                }
             };
 
-            inputChannel.onclose = () => {
-                console.log('[WebRTC] DataChannel closed');
-                document.getElementById('statusDot').classList.remove('p2p');
+            channel.onclose = () => {
+                if (pc !== activePc) return;
+                console.log(`[WebRTC] DataChannel closed: ${label}`);
+                if (label === 'reliable') {
+                    document.getElementById('statusDot').classList.remove('p2p');
+                    stopPingInterval();
+                    stopSnapshotInterval();
+                }
             };
 
-            inputChannel.onerror = e => console.error('[WebRTC] DataChannel error:', e);
-
-            inputChannel.onmessage = e => {
+            channel.onerror = e => console.error(`[WebRTC] DataChannel error (${label}):`, e);
+            channel.onmessage = e => {
+                if (pc !== activePc) return;
                 const view = new DataView(e.data);
                 const msgType = view.getUint8(0);
                 switch (msgType) {
                     case P2P_STATE_UPDATE:
                         handleP2PStateUpdate(new Uint8Array(e.data));
                         return;
-                    case P2P_RTT_ECHO:
-                        // RTT echo from screen: [msgType:1][timestamp:4]
+                    case P2P_RTT_ECHO: {
                         const echoTs = view.getUint32(1, false);
-                        currentRtt = ((performance.now() | 0) - echoTs) & 0xFFFF;
-                        updatePingDisplay(currentRtt);
-                        // Send ping report (methodId=0, rtt in bytes 5-6 as uint16 LE)
-                        txView.setUint8(0, P2P_PING);
-                        txView.setUint32(1, performance.now() | 0, false);
-                        txView.setUint16(5, currentRtt, true);
-                        inputChannel.send(new Uint8Array(txBuf, 0, 7));
+                        const now = performance.now();
+                        currentRtt = ((now | 0) - echoTs) & 0xFFFF;
+                        if (!lastPingUiUpdateAt || (now - lastPingUiUpdateAt) >= P2P_PING_UI_UPDATE_MS) {
+                            lastPingUiUpdateAt = now;
+                            updatePingDisplay(currentRtt);
+                        }
                         return;
+                    }
                 }
             };
+        }
 
-            pc.onicecandidate = e => {
+        async function connectP2P({ reason = 'initial', resetReconnect = true } = {}) {
+            stopP2PIntervals();
+            if (pc) try { pc.close(); } catch {}
+
+            if (resetReconnect) reconnectAttempts = 0;
+            iceRestartInFlight = false;
+
+            const nextPc = new RTCPeerConnection({ iceServers: [] });
+            pc = nextPc;
+            iceBuffer.reset();
+
+            inputFastChannel = nextPc.createDataChannel('input-fast', { ordered: false, maxRetransmits: 0 });
+            inputReliableChannel = nextPc.createDataChannel('input-reliable');
+            setupDataChannel(nextPc, inputFastChannel, 'fast');
+            setupDataChannel(nextPc, inputReliableChannel, 'reliable');
+
+            nextPc.onicecandidate = e => {
+                if (pc !== nextPc) return;
                 if (e.candidate) wsManager?.send({ type: 'ice-candidate', candidate: e.candidate });
             };
 
-            pc.onconnectionstatechange = () => {
-                console.log('[WebRTC] Connection state:', pc.connectionState);
-                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+            nextPc.onconnectionstatechange = () => {
+                if (pc !== nextPc) return;
+                console.log('[WebRTC] Connection state:', nextPc.connectionState, `(reason: ${reason})`);
+                if (nextPc.connectionState === 'connected') {
+                    reconnectAttempts = 0;
+                    stopReconnectTimer();
+                    return;
+                }
+                if (nextPc.connectionState === 'failed' || nextPc.connectionState === 'disconnected') {
                     document.getElementById('statusDot').classList.remove('p2p');
+                    attemptIceRestart(nextPc);
                 }
             };
 
-            pc.createOffer().then(offer => {
-                pc.setLocalDescription(offer);
-                wsManager?.send({ type: 'webrtc-offer', offer });
-                console.log('[WebRTC] Sent offer');
-            });
+            await sendOffer(nextPc);
         }
 
         function handleRemoteAnswer(answer) {
             if (!pc) return;
-            pc.setRemoteDescription(answer).then(() => iceBuffer.flush(pc));
+            const activePc = pc;
+            activePc.setRemoteDescription(answer).then(() => {
+                if (pc !== activePc) return;
+                iceBuffer.flush(activePc);
+            }).catch(err => {
+                console.warn('[WebRTC] Failed to apply answer:', err);
+                scheduleReconnect('remote-answer-error');
+            });
         }
 
         function handleRemoteIceCandidate(candidate) {
@@ -528,43 +796,54 @@
             });
         }
 
-        // Analog stick axes (indices 16-23 use 0-0x7fff values)
-        const ANALOG_AXES = new Set([16, 17, 18, 19, 20, 21, 22, 23]);
-
-        // Send input over P2P DataChannel. Returns true if sent (or suppressed due to no state change).
-        // Protocol: [methodId:1][timestamp:4][button:1][value:1-2]
+        // Send input over P2P DataChannel. Returns true if sent (or suppressed).
+        // Protocol:
+        // digital [method:1][timestamp:4][seq:2][button:1][value:1]
+        // analog  [method:1][timestamp:4][seq:2][button:1][value:2]
         function sendP2PInput(button, value, isAnalog) {
-            if (!inputChannel || inputChannel.readyState !== 'open') return false;
-
-            // For digital buttons, only send on state change (O(1) array lookup)
-            if (!isAnalog) {
-                if (lastButtonState[button] === value) {
-                    return true; // Already in this state, suppress but don't fallback to WS
-                }
-                lastButtonState[button] = value;
-            }
-
-            txView.setUint32(1, performance.now() | 0, false);
-            txBytes[5] = button;
-
             if (isAnalog) {
-                txView.setUint8(0, 2);
-                txView.setUint16(6, value & 0xFFFF, true);
-                inputChannel.send(new Uint8Array(txBuf, 0, 8));
-            } else {
-                txView.setUint8(0, 1);
-                txBytes[6] = value;
-                inputChannel.send(new Uint8Array(txBuf, 0, 7));
+                const channel = getFastChannel();
+                if (!channel) return false;
+
+                const now = performance.now();
+                const quantized = quantizeAnalog(value);
+                if (quantized === lastAnalogSentValue[button] && (now - lastAnalogSentAt[button]) < P2P_ANALOG_MIN_INTERVAL_MS) {
+                    return true;
+                }
+                if ((now - lastAnalogSentAt[button]) < P2P_ANALOG_MIN_INTERVAL_MS) {
+                    pendingAnalogState[button] = quantized;
+                    return true;
+                }
+                if (channel === inputFastChannel && inputFastChannel.bufferedAmount > P2P_FAST_BUFFER_HIGH_WATER) {
+                    pendingAnalogState[button] = quantized;
+                    return true;
+                }
+                return sendAnalogPacket(channel, button, quantized, now);
             }
+
+            const reliable = getReliableChannel();
+            if (!reliable) return false;
+            if (lastButtonState[button] === value) return true;
+
+            lastButtonState[button] = value;
+            digitalSnapshotDirty = true;
+
+            txView.setUint8(0, P2P_DIGITAL);
+            txView.setUint32(1, performance.now() | 0, false);
+            txView.setUint16(5, nextInputSeq(), true);
+            txBytes[7] = button;
+            txBytes[8] = value;
+            reliable.send(new Uint8Array(txBuf, 0, 9));
             return true;
         }
 
         // Send P2P command (non-input). Returns true if sent via P2P.
         function sendP2PCommand(methodId, payload = null) {
-            if (inputChannel?.readyState !== 'open') return false;
+            const reliable = getReliableChannel();
+            if (!reliable) return false;
             txBytes[0] = methodId;
             const len = payload !== null ? (txBytes[1] = payload, 2) : 1;
-            inputChannel.send(new Uint8Array(txBuf, 0, len));
+            reliable.send(new Uint8Array(txBuf, 0, len));
             return true;
         }
 
@@ -683,7 +962,10 @@
                     updateStatus('connected', playerNumber);
                     gameMenu?.setWebSocket(wsManager.ws);
                     updateGameMenuPlayerStatus();
-                    connectP2P();
+                    connectP2P().catch(err => {
+                        console.error('[WebRTC] Initial P2P connect failed:', err);
+                        scheduleReconnect('initial-connect-error');
+                    });
                     break;
 
                 case 'webrtc-answer':
@@ -708,6 +990,7 @@
                             clearInterval(reregisterInterval);
                             reregisterInterval = null;
                         }
+                        closeP2PConnection();
                         wsManager?.disconnect();
                         wsManager = null;
                     }
@@ -715,6 +998,7 @@
 
                 case 'screen-disconnected':
                     console.log('Screen disconnected, will try to reconnect...');
+                    closeP2PConnection();
                     updateStatus('connecting');
                     // Keep playerNumber for reconnection attempt
                     const savedPlayerNum = playerNumber;
@@ -928,7 +1212,7 @@
         })();
 
         window.addEventListener('beforeunload', () => {
-            if (pc) try { pc.close(); } catch {}
+            closeP2PConnection();
             wsManager?.disconnect();
         });
 

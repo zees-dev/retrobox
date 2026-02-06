@@ -11,8 +11,15 @@ export const P2P_RESET_MENU = 6;
 export const P2P_HARD_REFRESH = 7;
 export const P2P_STATE_UPDATE = 129;
 export const P2P_RTT_ECHO = 128;
+export const P2P_INPUT_SNAPSHOT = 130;
 
 export const P2P_STATES = ['game-selection', 'game-pending', 'game-ready'];
+
+export function isSeqNewer(seq, lastSeq) {
+    if (lastSeq == null) return true;
+    const delta = (seq - lastSeq + 65536) & 0xFFFF;
+    return delta > 0 && delta < 0x8000;
+}
 
 // ============================================
 // Timing Constants

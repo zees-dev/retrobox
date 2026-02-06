@@ -159,9 +159,9 @@
         import {
             P2P_PING, P2P_DIGITAL, P2P_ANALOG, P2P_TOGGLE_FPS, P2P_SAVE_STATE,
             P2P_LOAD_STATE, P2P_RESET_MENU, P2P_HARD_REFRESH, P2P_STATE_UPDATE,
-            P2P_RTT_ECHO, P2P_STATES, HEARTBEAT_INTERVAL, WebSocketManager,
-            IceCandidateBuffer, loadGameMenuComponent
-        } from './common.js';
+            P2P_RTT_ECHO, P2P_INPUT_SNAPSHOT, P2P_STATES, WebSocketManager,
+            IceCandidateBuffer, loadGameMenuComponent, isSeqNewer
+        } from './common.js?v=20260206';
 
         // ============================================
         // CONSTANTS
@@ -212,8 +212,10 @@
         // ============================================
         // WEBRTC P2P STATE
         // ============================================
-        const peers = new Map(); // controllerId -> { pc, channel, playerNum, rtt, iceBuffer }
+        const peers = new Map(); // controllerId -> { pc, reliableChannel, fastChannel, legacyChannel, playerNum, rtt, iceBuffer, lastDigitalSeq, lastAnalogSeq, lastSnapshotSeq, digitalMask }
         const pendingRemoval = new Map(); // controllerId -> timeout
+        const ANALOG_AXES = new Set([16, 17, 18, 19, 20, 21, 22, 23]);
+        const P2P_PING_UI_UPDATE_MS = 350;
         // Pre-allocated echo buffer: [messageType:1][timestamp:4] = 5 bytes
         const echoBuf = new ArrayBuffer(5);
         const echoView = new DataView(echoBuf);
@@ -223,8 +225,19 @@
         const stateUpdateBytes = new Uint8Array(stateUpdateBuf);
         const textEncoder = new TextEncoder();
 
+        function getPeerReliableChannel(peer) {
+            if (peer?.reliableChannel?.readyState === 'open') return peer.reliableChannel;
+            if (peer?.legacyChannel?.readyState === 'open') return peer.legacyChannel;
+            return null;
+        }
+
+        function getPeerStateChannel(peer) {
+            return getPeerReliableChannel(peer) || (peer?.fastChannel?.readyState === 'open' ? peer.fastChannel : null);
+        }
+
         function sendP2PStateUpdate(peer, stateEnum, isPaused, core, gameName) {
-            if (peer?.channel?.readyState !== 'open') return false;
+            const channel = getPeerStateChannel(peer);
+            if (!channel) return false;
             let o = 0;
             stateUpdateBytes[o++] = P2P_STATE_UPDATE;
             stateUpdateBytes[o++] = stateEnum;
@@ -235,7 +248,7 @@
             const nameBytes = gameName ? textEncoder.encode(gameName) : null;
             stateUpdateBytes[o++] = nameBytes?.length || 0;
             if (nameBytes) { stateUpdateBytes.set(nameBytes, o); o += nameBytes.length; }
-            peer.channel.send(new Uint8Array(stateUpdateBuf, 0, o));
+            channel.send(new Uint8Array(stateUpdateBuf, 0, o));
             return true;
         }
 
@@ -448,6 +461,23 @@
         // ============================================
         // WEBRTC P2P (Screen side)
         // ============================================
+        function createPeerState(playerNum) {
+            return {
+                pc: null,
+                reliableChannel: null,
+                fastChannel: null,
+                legacyChannel: null,
+                playerNum,
+                rtt: 0,
+                iceBuffer: new IceCandidateBuffer(),
+                lastDigitalSeq: null,
+                lastAnalogSeq: null,
+                lastSnapshotSeq: null,
+                digitalMask: 0,
+                lastPingUiUpdateAt: 0
+            };
+        }
+
         function handleControllerConnected(controllerId, playerNum) {
             console.log('Controller connected:', controllerId, 'Player', playerNum + 1);
 
@@ -460,7 +490,9 @@
 
             // Track peer (P2P connection created on offer)
             if (!peers.has(controllerId)) {
-                peers.set(controllerId, { pc: null, channel: null, playerNum, rtt: 0, iceBuffer: new IceCandidateBuffer() });
+                peers.set(controllerId, createPeerState(playerNum));
+            } else {
+                peers.get(controllerId).playerNum = playerNum;
             }
 
             // Acquire wake lock when controller connects
@@ -515,31 +547,117 @@
             return peers.size;
         }
 
+        function attachPeerChannel(controllerId, peer, channel) {
+            const label = channel.label || 'input-legacy';
+            channel.binaryType = 'arraybuffer';
+            if (label === 'input-reliable') peer.reliableChannel = channel;
+            else if (label === 'input-fast') peer.fastChannel = channel;
+            else peer.legacyChannel = channel;
+
+            channel.onopen = () => {
+                console.log('[WebRTC] DataChannel open:', controllerId, label);
+            };
+            channel.onmessage = evt => handleP2PMessage(controllerId, evt.data);
+            channel.onclose = () => {
+                if (peer.reliableChannel === channel) peer.reliableChannel = null;
+                if (peer.fastChannel === channel) peer.fastChannel = null;
+                if (peer.legacyChannel === channel) peer.legacyChannel = null;
+                console.log('[WebRTC] DataChannel closed:', controllerId, label);
+            };
+            channel.onerror = err => console.error('[WebRTC] DataChannel error:', controllerId, label, err);
+        }
+
+        function sendRttEcho(peer, timestamp) {
+            const channel = getPeerReliableChannel(peer) || (peer?.fastChannel?.readyState === 'open' ? peer.fastChannel : null);
+            if (!channel) return;
+            echoView.setUint8(0, P2P_RTT_ECHO);
+            echoView.setUint32(1, timestamp, false);
+            channel.send(echoBuf);
+        }
+
+        function applyDigitalInput(peer, button, value) {
+            if (button < 0 || button >= 32) return;
+            if (!ANALOG_AXES.has(button)) {
+                if (value === 1) peer.digitalMask = (peer.digitalMask | (1 << button)) >>> 0;
+                else peer.digitalMask = (peer.digitalMask & ~(1 << button)) >>> 0;
+            }
+            if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
+            const player = peer?.playerNum ?? 0;
+            const state = value === 1 ? 'pressed' : 'released';
+            try {
+                window.EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
+            } catch (e) {
+                console.error('P2P digital input error:', e);
+            }
+        }
+
+        function applyAnalogInput(peer, button, value) {
+            if (button < 0 || button >= 32) return;
+            if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
+            const player = peer?.playerNum ?? 0;
+            try {
+                window.EJS_emulator.handler.exec('input.simulate', { button, player, state: 'analog', value });
+            } catch (e) {
+                console.error('P2P analog input error:', e);
+            }
+        }
+
+        function applyDigitalSnapshot(peer, view) {
+            if (view.byteLength < 7) return;
+            const seq = view.getUint16(1, true);
+            if (!isSeqNewer(seq, peer.lastSnapshotSeq)) return;
+            peer.lastSnapshotSeq = seq;
+
+            const mask = view.getUint32(3, true) >>> 0;
+            const changed = (peer.digitalMask ^ mask) >>> 0;
+            peer.digitalMask = mask;
+            if (!changed) return;
+            if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
+
+            const player = peer?.playerNum ?? 0;
+            for (let i = 0; i < 32; i++) {
+                const bit = (1 << i) >>> 0;
+                if ((changed & bit) === 0) continue;
+                if (ANALOG_AXES.has(i)) continue;
+                const pressed = (mask & bit) !== 0;
+                try {
+                    window.EJS_emulator.handler.exec('input.simulate', {
+                        button: i,
+                        player,
+                        state: pressed ? 'pressed' : 'released',
+                        value: pressed ? 1 : 0
+                    });
+                } catch (e) {
+                    console.error('P2P snapshot apply error:', e);
+                }
+            }
+        }
+
         function handleWebRTCOffer(controllerId, offer) {
             console.log('[WebRTC] Received offer from:', controllerId);
-
             let peer = peers.get(controllerId);
             if (!peer) {
-                peer = { pc: null, channel: null, playerNum: getNextPlayerNum(), rtt: 0, iceBuffer: new IceCandidateBuffer() };
+                peer = createPeerState(getNextPlayerNum());
                 peers.set(controllerId, peer);
             }
 
             // Close existing connection if any
             if (peer.pc) try { peer.pc.close(); } catch {}
             peer.iceBuffer.reset();
+            peer.reliableChannel = null;
+            peer.fastChannel = null;
+            peer.legacyChannel = null;
+            peer.lastDigitalSeq = null;
+            peer.lastAnalogSeq = null;
+            peer.lastSnapshotSeq = null;
+            peer.digitalMask = 0;
 
             const pc = new RTCPeerConnection({ iceServers: [] });
             peer.pc = pc;
 
             pc.ondatachannel = e => {
-                console.log('[WebRTC] DataChannel received from:', controllerId);
-                const ch = e.channel;
-                peer.channel = ch;
-                ch.binaryType = 'arraybuffer';
-
-                ch.onmessage = evt => handleP2PMessage(controllerId, evt.data);
-                ch.onclose = () => console.log('[WebRTC] DataChannel closed:', controllerId);
-                ch.onerror = err => console.error('[WebRTC] DataChannel error:', controllerId, err);
+                console.log('[WebRTC] DataChannel received from:', controllerId, e.channel.label || 'input-legacy');
+                attachPeerChannel(controllerId, peer, e.channel);
             };
 
             pc.onicecandidate = e => {
@@ -554,9 +672,13 @@
                 peer.iceBuffer.flush(pc);
                 return pc.createAnswer();
             }).then(answer => {
-                pc.setLocalDescription(answer);
-                wsManager?.send({ type: 'webrtc-answer', to: controllerId, answer });
+                return pc.setLocalDescription(answer);
+            }).then(() => {
+                if (peer.pc !== pc || !pc.localDescription) return;
+                wsManager?.send({ type: 'webrtc-answer', to: controllerId, answer: pc.localDescription });
                 console.log('[WebRTC] Sent answer to:', controllerId);
+            }).catch(err => {
+                console.error('[WebRTC] Offer handling error:', controllerId, err);
             });
         }
 
@@ -570,18 +692,20 @@
             const view = new DataView(data);
             const methodId = view.getUint8(0);
             const peer = peers.get(controllerId);
+            if (!peer) return;
 
             switch (methodId) {
                 case P2P_PING:
-                    if (peer) peer.rtt = view.getUint16(5, true);
-                    updateControllerDisplay();
-                    // Send RTT echo for ping measurement
-                    const pingTs = view.getUint32(1, false);
-                    if (peer?.channel?.readyState === 'open') {
-                        echoView.setUint8(0, P2P_RTT_ECHO);
-                        echoView.setUint32(1, pingTs, false);
-                        peer.channel.send(echoBuf);
+                    if (view.byteLength >= 7) peer.rtt = view.getUint16(5, true);
+                    const now = performance.now();
+                    if (!peer.lastPingUiUpdateAt || (now - peer.lastPingUiUpdateAt) >= P2P_PING_UI_UPDATE_MS) {
+                        peer.lastPingUiUpdateAt = now;
+                        updateControllerDisplay();
                     }
+                    if (view.byteLength >= 5) sendRttEcho(peer, view.getUint32(1, false));
+                    return;
+                case P2P_INPUT_SNAPSHOT:
+                    applyDigitalSnapshot(peer, view);
                     return;
                 case P2P_TOGGLE_FPS: toggleFPS(); return;
                 case P2P_SAVE_STATE: saveState(view.byteLength > 1 ? view.getUint8(1) : 1); return;
@@ -595,26 +719,43 @@
                     return; // Unknown method
             }
 
-            // Input messages (1=digital, 2=analog) - echo timestamp for RTT
-            const ts = view.getUint32(1, false);
-            if (peer?.channel?.readyState === 'open') {
-                echoView.setUint8(0, P2P_RTT_ECHO);
-                echoView.setUint32(1, ts, false);
-                peer.channel.send(echoBuf);
+            if (methodId === P2P_DIGITAL) {
+                let button;
+                let value;
+                if (view.byteLength >= 9) {
+                    const seq = view.getUint16(5, true);
+                    if (!isSeqNewer(seq, peer.lastDigitalSeq)) return;
+                    peer.lastDigitalSeq = seq;
+                    button = view.getUint8(7);
+                    value = view.getUint8(8);
+                } else if (view.byteLength >= 7) {
+                    // Backward-compatible decode for older controllers.
+                    button = view.getUint8(5);
+                    value = view.getUint8(6);
+                } else {
+                    return;
+                }
+                applyDigitalInput(peer, button, value);
+                return;
             }
 
-            if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
-
-            const button = view.getUint8(5);
-            const player = peer?.playerNum ?? 0;
-            const isAnalog = methodId === P2P_ANALOG;
-            const value = isAnalog ? view.getUint16(6, true) : view.getUint8(6);
-            const state = isAnalog ? 'analog' : (value === 1 ? 'pressed' : 'released');
-
-            try {
-                window.EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
-            } catch (e) {
-                console.error('P2P input error:', e);
+            if (methodId === P2P_ANALOG) {
+                let button;
+                let value;
+                if (view.byteLength >= 10) {
+                    const seq = view.getUint16(5, true);
+                    if (!isSeqNewer(seq, peer.lastAnalogSeq)) return;
+                    peer.lastAnalogSeq = seq;
+                    button = view.getUint8(7);
+                    value = view.getUint16(8, true);
+                } else if (view.byteLength >= 8) {
+                    // Backward-compatible decode for older controllers.
+                    button = view.getUint8(5);
+                    value = view.getUint16(6, true);
+                } else {
+                    return;
+                }
+                applyAnalogInput(peer, button, value);
             }
         }
 

@@ -49,8 +49,12 @@ const coiHeaders: Record<string, string> = {
 };
 
 function getHeaders(req: Request): Record<string, string> {
-  // COI headers enabled for all connections to support SharedArrayBuffer (threads)
-  return { ...corsHeaders, ...coiHeaders };
+  const url = new URL(req.url);
+  const host = url.hostname.toLowerCase();
+  const isHttps = url.protocol === "https:";
+  const isTrustedLocalhost = host === "localhost" || host === "::1";
+  // COI requires a potentially trustworthy origin; avoid sending it on plain HTTP IP origins.
+  return isHttps || isTrustedLocalhost ? { ...corsHeaders, ...coiHeaders } : { ...corsHeaders };
 }
 
 function getMimeType(path: string): string {
@@ -74,7 +78,7 @@ async function serveFile(path: string, req: Request): Promise<Response | null> {
     const baseHeaders: Record<string, string> = {
       "Content-Type": getMimeType(path),
       ...(isHtml ? {} : { "ETag": etag }),
-      "Cache-Control": isHtml ? "no-store, no-cache, must-revalidate, max-age=0" : "public, max-age=31536000, immutable",
+      "Cache-Control": isHtml ? "no-store, no-cache, must-revalidate, max-age=0" : "public, max-age=0, must-revalidate",
       ...(isHtml ? { "Pragma": "no-cache", "Expires": "0" } : {}),
       ...getHeaders(req),
     };
@@ -123,6 +127,18 @@ function broadcastPlayerList(screenId: string) {
   for (const [, ctrl] of controllers) {
     if (ctrl.screenId === screenId) ctrl.ws.send(msg);
   }
+}
+
+function isValidSessionDescription(desc: any): boolean {
+  return !!desc && typeof desc === "object" && typeof desc.type === "string" && typeof desc.sdp === "string";
+}
+
+function isValidIceCandidate(candidate: any): boolean {
+  if (!candidate || typeof candidate !== "object") return false;
+  if (typeof candidate.candidate !== "string") return false;
+  if (candidate.sdpMid != null && typeof candidate.sdpMid !== "string") return false;
+  if (candidate.sdpMLineIndex != null && typeof candidate.sdpMLineIndex !== "number") return false;
+  return true;
 }
 
 serve({
@@ -361,22 +377,81 @@ serve({
 
       // WebRTC signaling relay
       if (msg.type === "webrtc-offer") {
+        if (wsData.type !== "controller" || !wsData.id || !wsData.screenId) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid offer sender" }));
+          return;
+        }
+        if (!isValidSessionDescription(msg.offer)) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid offer payload" }));
+          return;
+        }
+        const ctrl = controllers.get(wsData.id);
+        if (!ctrl || ctrl.screenId !== wsData.screenId || ctrl.ws !== ws) {
+          ws.send(JSON.stringify({ type: "error", error: "Controller not registered for this screen" }));
+          return;
+        }
         const screenWs = screens.get(wsData.screenId!);
-        if (screenWs) screenWs.send(JSON.stringify({ type: "webrtc-offer", from: wsData.id, offer: msg.offer }));
+        if (screenWs) {
+          screenWs.send(JSON.stringify({
+            type: "webrtc-offer",
+            from: wsData.id,
+            offer: msg.offer,
+            iceRestart: msg.iceRestart === true,
+          }));
+        }
         return;
       }
       if (msg.type === "webrtc-answer") {
+        if (wsData.type !== "screen" || !wsData.id) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid answer sender" }));
+          return;
+        }
+        if (typeof msg.to !== "string") {
+          ws.send(JSON.stringify({ type: "error", error: "Missing answer target" }));
+          return;
+        }
+        if (!isValidSessionDescription(msg.answer)) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid answer payload" }));
+          return;
+        }
         const ctrl = controllers.get(msg.to);
-        if (ctrl) ctrl.ws.send(JSON.stringify({ type: "webrtc-answer", answer: msg.answer }));
+        if (!ctrl || ctrl.screenId !== wsData.id) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid answer target" }));
+          return;
+        }
+        ctrl.ws.send(JSON.stringify({ type: "webrtc-answer", answer: msg.answer }));
         return;
       }
       if (msg.type === "ice-candidate") {
+        if (!isValidIceCandidate(msg.candidate)) {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid ICE candidate payload" }));
+          return;
+        }
         if (wsData.type === "controller") {
+          if (!wsData.id || !wsData.screenId) {
+            ws.send(JSON.stringify({ type: "error", error: "Invalid ICE sender" }));
+            return;
+          }
+          const ctrl = controllers.get(wsData.id);
+          if (!ctrl || ctrl.screenId !== wsData.screenId || ctrl.ws !== ws) {
+            ws.send(JSON.stringify({ type: "error", error: "Controller not registered for this screen" }));
+            return;
+          }
           const screenWs = screens.get(wsData.screenId!);
           if (screenWs) screenWs.send(JSON.stringify({ type: "ice-candidate", from: wsData.id, candidate: msg.candidate }));
         } else if (wsData.type === "screen") {
+          if (!wsData.id || typeof msg.to !== "string") {
+            ws.send(JSON.stringify({ type: "error", error: "Invalid ICE target" }));
+            return;
+          }
           const ctrl = controllers.get(msg.to);
-          if (ctrl) ctrl.ws.send(JSON.stringify({ type: "ice-candidate", candidate: msg.candidate }));
+          if (!ctrl || ctrl.screenId !== wsData.id) {
+            ws.send(JSON.stringify({ type: "error", error: "Invalid ICE target" }));
+            return;
+          }
+          ctrl.ws.send(JSON.stringify({ type: "ice-candidate", candidate: msg.candidate }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", error: "Invalid ICE sender" }));
         }
         return;
       }
