@@ -48,13 +48,8 @@ const coiHeaders: Record<string, string> = {
   "Cross-Origin-Resource-Policy": "cross-origin",
 };
 
-function getHeaders(req: Request): Record<string, string> {
-  const url = new URL(req.url);
-  const host = url.hostname.toLowerCase();
-  const isHttps = url.protocol === "https:";
-  const isTrustedLocalhost = host === "localhost" || host === "::1";
-  // COI requires a potentially trustworthy origin; avoid sending it on plain HTTP IP origins.
-  return isHttps || isTrustedLocalhost ? { ...corsHeaders, ...coiHeaders } : { ...corsHeaders };
+function getHeaders(_req: Request): Record<string, string> {
+  return { ...corsHeaders, ...coiHeaders };
 }
 
 function getMimeType(path: string): string {
