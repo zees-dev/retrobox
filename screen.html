@@ -1062,7 +1062,33 @@
             window.EJS_DEBUG_XX = true;
             window.EJS_threads = pendingROM?.threads || false;
             window.EJS_EXPERIMENTAL_NETPLAY = true;
-            window.EJS_defaultControls = false;
+            // Default gamepad mappings for all 4 players
+            const gamepadControls = {
+                0:  { value2: 'BUTTON_2' },          // Cross / A
+                1:  { value2: 'BUTTON_4' },          // Circle / B
+                3:  { value2: 'START' },              // Options / Start
+                4:  { value2: 'DPAD_UP' },
+                5:  { value2: 'DPAD_DOWN' },
+                6:  { value2: 'DPAD_LEFT' },
+                7:  { value2: 'DPAD_RIGHT' },
+                10: { value2: 'LEFT_TOP_SHOULDER' },  // L1
+                11: { value2: 'RIGHT_TOP_SHOULDER' }, // R1
+                12: { value2: 'LEFT_BOTTOM_SHOULDER' }, // L2
+                16: { value2: 'LEFT_STICK_X:+1' },
+                17: { value2: 'LEFT_STICK_X:-1' },
+                18: { value2: 'LEFT_STICK_Y:+1' },
+                19: { value2: 'LEFT_STICK_Y:-1' },
+                20: { value2: 'RIGHT_STICK_X:+1' },
+                21: { value2: 'RIGHT_STICK_X:-1' },
+                22: { value2: 'RIGHT_STICK_Y:+1' },
+                23: { value2: 'RIGHT_STICK_Y:-1' },
+            };
+            window.EJS_defaultControls = {
+                0: gamepadControls,
+                1: gamepadControls,
+                2: gamepadControls,
+                3: gamepadControls,
+            };
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "hide" };
