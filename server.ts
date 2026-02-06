@@ -208,8 +208,8 @@ serve({
 
               const roms = await readdir(itemPath, { withFileTypes: true });
               for (const rom of roms) {
-                if (rom.isFile() && (rom.name.endsWith(".zip") || rom.name.endsWith(".7z"))) {
-                  const gameName = rom.name.replace(/\.(zip|7z)$/, "");
+                if (rom.isFile() && /\.(zip|7z|gba|gbc|gb|nes|sfc|smc|n64|z64|v64|bin|cue|iso|md|gen|smd|gg|sms|nds)$/i.test(rom.name)) {
+                  const gameName = rom.name.replace(/\.(zip|7z|gba|gbc|gb|nes|sfc|smc|n64|z64|v64|bin|cue|iso|md|gen|smd|gg|sms|nds)$/i, "");
                   presets[coreName][playerCount].push({
                     name: gameName,
                     rom: `${relativePath}/${rom.name}`,
