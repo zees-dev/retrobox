@@ -444,7 +444,7 @@
             pc = new RTCPeerConnection({ iceServers: [] });
             iceBuffer.reset();
 
-            inputChannel = pc.createDataChannel('input');
+            inputChannel = pc.createDataChannel('input', { ordered: false });
             inputChannel.binaryType = 'arraybuffer';
 
             inputChannel.onopen = () => {

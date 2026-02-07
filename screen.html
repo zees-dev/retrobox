@@ -214,6 +214,7 @@
         // ============================================
         const peers = new Map(); // controllerId -> { pc, channel, playerNum, rtt, iceBuffer }
         const pendingRemoval = new Map(); // controllerId -> timeout
+        const lastInputTs = new Map(); // controllerId -> Uint32Array(32) per-button timestamps
         // Pre-allocated echo buffer: [messageType:1][timestamp:4] = 5 bytes
         const echoBuf = new ArrayBuffer(5);
         const echoView = new DataView(echoBuf);
@@ -605,10 +606,19 @@
             if (currentState !== State.PLAYING || !window.EJS_emulator?.handler) return;
 
             const button = view.getUint8(5);
+            const ts = view.getUint32(1, false);
             const player = peer?.playerNum ?? 0;
             const isAnalog = methodId === P2P_ANALOG;
             const value = isAnalog ? view.getUint16(6, true) : view.getUint8(6);
             const state = isAnalog ? 'analog' : (value === 1 ? 'pressed' : 'released');
+
+            // Reject stale out-of-order messages per button (unordered channel)
+            if (!isAnalog) {
+                let btnTs = lastInputTs.get(controllerId);
+                if (!btnTs) { btnTs = new Uint32Array(32); lastInputTs.set(controllerId, btnTs); }
+                if (ts < btnTs[button]) return;
+                btnTs[button] = ts;
+            }
 
             try {
                 window.EJS_emulator.handler.exec('input.simulate', { button, player, state, value });
