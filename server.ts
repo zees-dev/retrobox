@@ -2,9 +2,24 @@ import { serve, file } from "bun";
 import { join, extname, basename } from "path";
 import { networkInterfaces } from "os";
 import { reverse } from "dns/promises";
-import { readdir } from "fs/promises";
+import { readdir, access } from "fs/promises";
+import { parseArgs } from "util";
 
-const PORT = process.env.PORT || 3333;
+const { values: args } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: {
+    port: { type: "string", default: process.env.PORT || "3333" },
+    "https-port": { type: "string", default: process.env.HTTPS_PORT || "3334" },
+    "tls-cert": { type: "string", default: process.env.TLS_CERT },
+    "tls-key": { type: "string", default: process.env.TLS_KEY },
+  },
+  strict: false,
+});
+
+const PORT = Number(args.port);
+const HTTPS_PORT = Number(args["https-port"]);
+const TLS_CERT = args["tls-cert"];
+const TLS_KEY = args["tls-key"];
 const ROOT_DIR = import.meta.dir;
 const EMULATORJS_DIR = join(ROOT_DIR, "EmulatorJS");
 
@@ -124,12 +139,11 @@ function broadcastPlayerList(screenId: string) {
   }
 }
 
-serve({
-  port: PORT,
+const serverConfig = {
   hostname: "0.0.0.0",
   development: true,
 
-  async fetch(req, server) {
+  async fetch(req: Request, server: any) {
     const url = new URL(req.url);
     let pathname = decodeURIComponent(url.pathname);
 
@@ -423,11 +437,34 @@ serve({
       }
     },
   },
-});
+};
+
+// HTTP server
+serve({ ...serverConfig, port: PORT });
+
+// HTTPS server (only if TLS cert provided)
+let httpsEnabled = false;
+if (TLS_CERT && TLS_KEY) {
+  try {
+    await access(TLS_CERT);
+    await access(TLS_KEY);
+    serve({
+      ...serverConfig,
+      port: HTTPS_PORT,
+      tls: {
+        certFile: TLS_CERT,
+        keyFile: TLS_KEY,
+      },
+    });
+    httpsEnabled = true;
+  } catch (e) {
+    console.warn(`HTTPS disabled: ${e}`);
+  }
+}
 
 console.log(`
 RetroBox Server (WebSocket + WebRTC Signaling)
-  Local:   http://localhost:${PORT}
-  ${LOCAL_IP ? `Network: http://${LOCAL_IP}:${PORT}\n` : ""}  Root:    ${ROOT_DIR}
-  WS:      ws://localhost:${PORT}/ws
+  HTTP:    http://localhost:${PORT}${httpsEnabled ? `\n  HTTPS:   https://localhost:${HTTPS_PORT}` : ""}
+  ${LOCAL_IP ? `Network: http://${LOCAL_IP}:${PORT}` : ""}${httpsEnabled && LOCAL_IP ? `\n  Network: https://${LOCAL_IP}:${HTTPS_PORT}` : ""}
+  Root:    ${ROOT_DIR}
 `);
