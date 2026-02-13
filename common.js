@@ -15,6 +15,45 @@ export const P2P_RTT_ECHO = 128;
 export const P2P_STATES = ['game-selection', 'game-pending', 'game-ready'];
 
 // ============================================
+// Resolution Options per Core
+// ============================================
+export const RESOLUTION_OPTIONS = {
+    psx: {
+        key: 'pcsx_rearmed_neon_enhancement_enable',
+        options: [
+            { label: '1x (Native)', value: 'disabled' },
+            { label: '2x', value: 'enabled' },
+        ],
+        default: 'disabled'
+    },
+    mednafen_psx_hw: {
+        key: 'beetle_psx_hw_internal_resolution',
+        options: [
+            { label: '1x (Native)', value: '1x(native)' },
+            { label: '2x', value: '2x' },
+            { label: '4x', value: '4x' },
+            { label: '8x', value: '8x' },
+            { label: '16x', value: '16x' },
+        ],
+        default: '2x'
+    },
+    n64: {
+        key: 'mupen64plus-43screensize',
+        options: [
+            { label: '240p (Native)', value: '320x240' },
+            { label: '480p', value: '640x480' },
+            { label: '720p', value: '960x720' },
+            { label: '960p', value: '1280x960' },
+            { label: '1440p', value: '1920x1440' },
+        ],
+        default: '320x240'
+    },
+};
+// Core aliases
+RESOLUTION_OPTIONS.pcsx_rearmed = RESOLUTION_OPTIONS.psx;
+RESOLUTION_OPTIONS.mupen64plus_next = RESOLUTION_OPTIONS.n64;
+
+// ============================================
 // Timing Constants
 // ============================================
 export const HEARTBEAT_INTERVAL = 3000;

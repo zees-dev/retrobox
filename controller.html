@@ -907,6 +907,12 @@
             if (settings.loadOnStart != null) {
                 gameMenu.applySetting('loadOnStart', settings.loadOnStart);
             }
+            if (settings.resolution != null) {
+                gameMenu.applySetting('resolution', settings.resolution);
+            }
+            if (settings.webgl2 != null) {
+                gameMenu.applySetting('webgl2', settings.webgl2);
+            }
             console.log('Menu settings synced from screen:', settings);
         }
 

@@ -7,6 +7,8 @@
 </head>
 <body>
     <script type="module">
+        import { RESOLUTION_OPTIONS } from './common.js';
+
         // Game Menu Web Component - Dynamic Preset Loading
         class GameMenuElement extends HTMLElement {
             constructor() {
@@ -23,6 +25,8 @@
                 this._useUrl = false;
                 this._debugMode = false;
                 this._loadOnStart = false;
+                this._resolution = {}; // Per-core resolution map: { psx: 'disabled', n64: '640x480', ... }
+                this._webgl2 = {}; // Per-core WebGL2 toggle: { n64: true, mednafen_psx_hw: true, ... }
                 this._showingSettings = false;
                 this.gamePresets = {};
 
@@ -55,6 +59,10 @@
                 this.useUrlToggle = this.shadowRoot.getElementById('useUrlToggle');
                 this.debugModeToggle = this.shadowRoot.getElementById('debugModeToggle');
                 this.loadOnStartToggle = this.shadowRoot.getElementById('loadOnStartToggle');
+                this.resolutionSelect = this.shadowRoot.getElementById('resolutionSelect');
+                this.resolutionRow = this.shadowRoot.getElementById('resolutionRow');
+                this.webgl2Toggle = this.shadowRoot.getElementById('webgl2Toggle');
+                this.webgl2Row = this.shadowRoot.getElementById('webgl2Row');
                 this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
                 this.presetSection = this.shadowRoot.getElementById('presetSection');
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
@@ -324,6 +332,10 @@
                             grid-column: 1 / -1;
                             padding-top: 10px;
                         }
+                        .settings-view select {
+                            height: 36px;
+                            font-size: 13px;
+                        }
                         .settings-view.visible {
                             display: flex;
                         }
@@ -566,6 +578,28 @@
                                 </div>
                                 <div class="slider-container">
                                     <input type="range" id="gameHeightSlider" min="50" max="100" value="100" step="5">
+                                </div>
+                            </div>
+
+                            <div class="setting-row setting-persisted" id="resolutionRow">
+                                <div class="setting-label">
+                                    <span>Resolution<sup class="ejs-prefix">EJS</sup></span>
+                                </div>
+                                <select id="resolutionSelect" disabled>
+                                    <option value="">Select a game first</option>
+                                </select>
+                            </div>
+
+                            <div class="setting-row setting-persisted" id="webgl2Row" style="display:none;">
+                                <div class="toggle-row">
+                                    <div class="toggle-info">
+                                        <span class="setting-label"><span>WebGL2<sup class="ejs-prefix">EJS</sup></span></span>
+                                        <span class="toggle-description">GPU-accelerated rendering (required for resolution scaling)</span>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="webgl2Toggle" checked>
+                                        <span class="toggle-slider"></span>
+                                    </label>
                                 </div>
                             </div>
 
@@ -835,6 +869,7 @@
                     this.allGamesSelect.value = '';
                     this.updatePlayerCountOptions();
                     this.clearManualInputs();
+                    this.updateResolutionOptions();
                     this.updateStartButtonState();
                 };
 
@@ -919,7 +954,10 @@
                     this._currentBiosSource = e.target.value.trim() || null;
                 };
 
-                this.consoleSelect.onchange = () => this.updateStartButtonState();
+                this.consoleSelect.onchange = () => {
+                    this.updateResolutionOptions();
+                    this.updateStartButtonState();
+                };
 
                 this.startButton.onclick = () => {
                     if (!this._currentRomSource || !this.consoleSelect.value) return;
@@ -928,14 +966,21 @@
                         ? this._currentRomSource.split('/').pop().split('?')[0]
                         : this._currentRomSource.name;
 
+                    const core = this.consoleSelect.value;
+                    const resConfig = RESOLUTION_OPTIONS[core];
+                    const resolutionValue = this._resolution[core] || resConfig?.default || null;
+                    const webgl2Value = this._webgl2[core] !== undefined ? this._webgl2[core] : true;
+
                     const gameData = {
                         romSource: this._currentRomSource,
                         parentRomSource: this._currentParentRomSource,
                         biosSource: this._currentBiosSource,
-                        core: this.consoleSelect.value,
+                        core,
                         romName,
                         gameHeight: this._currentGameHeight < 100 ? this._currentGameHeight : null,
-                        threads: this._threads
+                        threads: this._threads,
+                        resolution: resolutionValue,
+                        webgl2: webgl2Value
                     };
 
                     this.showLoading();
@@ -972,6 +1017,7 @@
                 this.debugButton.onclick = () => {
                     this._showingSettings = !this._showingSettings;
                     this.updateSettingsVisibility();
+                    if (this._showingSettings) this.updateResolutionOptions();
                 };
 
                 // Game height slider
@@ -1021,6 +1067,33 @@
                     } else if (this._mode === 'controller') {
                         this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'loadOnStart', value: e.target.checked }, bubbles: true }));
                     }
+                };
+
+                // Resolution select
+                this.resolutionSelect.onchange = (e) => {
+                    const core = this.consoleSelect.value;
+                    if (!core) return;
+                    this._resolution[core] = e.target.value;
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_resolution', JSON.stringify(this._resolution));
+                    } else if (this._mode === 'controller') {
+                        this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'resolution', value: this._resolution }, bubbles: true }));
+                    }
+                    // Auto-enable WebGL2 when resolution is set above native
+                    const config = RESOLUTION_OPTIONS[core];
+                    if (config && e.target.value !== config.options[0].value) {
+                        this._webgl2[core] = true;
+                        this.webgl2Toggle.checked = true;
+                        this._persistWebgl2();
+                    }
+                };
+
+                // WebGL2 toggle
+                this.webgl2Toggle.onchange = (e) => {
+                    const core = this.consoleSelect.value;
+                    if (!core) return;
+                    this._webgl2[core] = e.target.checked;
+                    this._persistWebgl2();
                 };
             }
 
@@ -1076,6 +1149,18 @@
                     this._loadOnStart = savedLoadOnStart === 'true';
                     this.loadOnStartToggle.checked = this._loadOnStart;
                 }
+
+                // Load resolution setting (per-core map)
+                const savedResolution = localStorage.getItem('retrobox_resolution');
+                if (savedResolution) {
+                    try { this._resolution = JSON.parse(savedResolution); } catch {}
+                }
+
+                // Load WebGL2 setting (per-core map, defaults to true)
+                const savedWebgl2 = localStorage.getItem('retrobox_webgl2');
+                if (savedWebgl2) {
+                    try { this._webgl2 = JSON.parse(savedWebgl2); } catch {}
+                }
             }
 
             // Apply setting from external source (e.g., controller via WebSocket)
@@ -1107,6 +1192,26 @@
                     if (this._mode === 'screen') {
                         localStorage.setItem('retrobox_loadOnStart', this._loadOnStart);
                     }
+                } else if (setting === 'resolution') {
+                    if (typeof value === 'object' && value !== null) {
+                        this._resolution = value;
+                    } else if (typeof value === 'string') {
+                        try { this._resolution = JSON.parse(value); } catch {}
+                    }
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_resolution', JSON.stringify(this._resolution));
+                    }
+                    this.updateResolutionOptions();
+                } else if (setting === 'webgl2') {
+                    if (typeof value === 'object' && value !== null) {
+                        this._webgl2 = value;
+                    } else if (typeof value === 'string') {
+                        try { this._webgl2 = JSON.parse(value); } catch {}
+                    }
+                    if (this._mode === 'screen') {
+                        localStorage.setItem('retrobox_webgl2', JSON.stringify(this._webgl2));
+                    }
+                    this.updateResolutionOptions(); // refreshes toggle state
                 }
             }
 
@@ -1127,6 +1232,44 @@
                     this.debugButton.innerHTML = gearIcon;
                     this.debugButton.title = 'Settings';
                 }
+            }
+
+            _persistWebgl2() {
+                if (this._mode === 'screen') {
+                    localStorage.setItem('retrobox_webgl2', JSON.stringify(this._webgl2));
+                } else if (this._mode === 'controller') {
+                    this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'webgl2', value: this._webgl2 }, bubbles: true }));
+                }
+            }
+
+            updateResolutionOptions() {
+                const core = this.consoleSelect.value;
+                const config = core ? RESOLUTION_OPTIONS[core] : null;
+                this.resolutionSelect.innerHTML = '';
+
+                if (!config) {
+                    this.resolutionSelect.innerHTML = '<option value="">Not available for this system</option>';
+                    this.resolutionSelect.disabled = true;
+                    this.webgl2Row.style.display = 'none';
+                    return;
+                }
+
+                for (const opt of config.options) {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.label;
+                    this.resolutionSelect.appendChild(option);
+                }
+
+                // Restore saved value or use default
+                const saved = this._resolution[core];
+                this.resolutionSelect.value = saved || config.default;
+                this.resolutionSelect.disabled = false;
+
+                // Show WebGL2 toggle for cores with resolution options
+                this.webgl2Row.style.display = '';
+                const webgl2Val = this._webgl2[core];
+                this.webgl2Toggle.checked = webgl2Val !== undefined ? webgl2Val : true; // default true
             }
 
             clearManualInputs() {
@@ -1170,6 +1313,7 @@
                 this._currentParentRomSource = game.parentRom || null;
                 this._currentBiosSource = game.bios || null;
                 this.consoleSelect.value = core;
+                this.updateResolutionOptions();
                 this.updateStartButtonState();
             }
 
@@ -1237,6 +1381,12 @@
                 this.consoleSelect.disabled = !connected;
                 this.gameHeightSlider.disabled = !connected;
                 this.threadsToggle.disabled = !connected;
+                if (!connected) {
+                    this.resolutionSelect.disabled = true;
+                    this.webgl2Toggle.disabled = true;
+                } else {
+                    this.webgl2Toggle.disabled = false;
+                }
                 this.updateStartButtonState();
 
                 if (!connected) {

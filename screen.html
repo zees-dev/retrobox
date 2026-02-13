@@ -160,7 +160,7 @@
             P2P_PING, P2P_DIGITAL, P2P_ANALOG, P2P_TOGGLE_FPS, P2P_SAVE_STATE,
             P2P_LOAD_STATE, P2P_RESET_MENU, P2P_HARD_REFRESH, P2P_STATE_UPDATE,
             P2P_RTT_ECHO, P2P_STATES, HEARTBEAT_INTERVAL, WebSocketManager,
-            IceCandidateBuffer, loadGameMenuComponent
+            IceCandidateBuffer, loadGameMenuComponent, RESOLUTION_OPTIONS
         } from './common.js';
 
         // ============================================
@@ -475,10 +475,14 @@
             const threads = localStorage.getItem('retrobox_threads') === 'true';
             const debugMode = localStorage.getItem('retrobox_debugMode') === 'true';
             const loadOnStart = localStorage.getItem('retrobox_loadOnStart') === 'true';
+            let resolution = {};
+            try { resolution = JSON.parse(localStorage.getItem('retrobox_resolution') || '{}'); } catch {}
+            let webgl2 = {};
+            try { webgl2 = JSON.parse(localStorage.getItem('retrobox_webgl2') || '{}'); } catch {}
             wsManager?.send({
                 type: 'menuSettingsSync',
                 targetController: controllerId,
-                settings: { gameHeight, threads, debugMode, loadOnStart }
+                settings: { gameHeight, threads, debugMode, loadOnStart, resolution, webgl2 }
             });
         }
 
@@ -701,7 +705,9 @@
                             core: gameData.core,
                             biosSource: gameData.biosSource,
                             gameHeight: gameData.gameHeight,
-                            threads: gameData.threads
+                            threads: gameData.threads,
+                            resolution: gameData.resolution,
+                            webgl2: gameData.webgl2
                         });
                     }, 100);
                 } catch (e) {
@@ -808,7 +814,9 @@
                 core: gameData.core,
                 biosSource: gameData.biosSource,
                 gameHeight: gameData.gameHeight || null,
-                threads: gameData.threads || false
+                threads: gameData.threads || false,
+                resolution: gameData.resolution || null,
+                webgl2: gameData.webgl2 !== undefined ? gameData.webgl2 : null
             };
             setState(State.LOADING);
             initializeEmulator();
@@ -984,8 +992,7 @@
             if (pendingROM?.core === 'mednafen_psx_hw') {
                 window.EJS_defaultOptions = {
                     ...window.EJS_defaultOptions,
-                    // Graphics enhancements
-                    "beetle_psx_hw_internal_resolution": "2x",
+                    // Graphics enhancements (resolution set dynamically via RESOLUTION_OPTIONS)
                     "beetle_psx_hw_pgxp_mode": "memory only",
                     "beetle_psx_hw_pgxp_texture": "enabled",
                     "beetle_psx_hw_filter": "bilinear",
@@ -994,13 +1001,41 @@
                     "beetle_psx_hw_cd_fastload": "2x"
                 };
             }
-            // N64: disable WebGL2 to avoid glMapBufferRange errors (uses legacy WebGL1 core)
-            if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
-                window.EJS_defaultOptions = {
-                    ...window.EJS_defaultOptions,
-                    "webgl2Enabled": "disabled"
-                };
+            // Apply resolution and WebGL2 settings from game data or localStorage
+            if (pendingROM?.core) {
+                const resConfig = RESOLUTION_OPTIONS[pendingROM.core];
+                if (resConfig) {
+                    // Resolution
+                    let resValue = pendingROM.resolution;
+                    if (!resValue) {
+                        try {
+                            const saved = JSON.parse(localStorage.getItem('retrobox_resolution') || '{}');
+                            resValue = saved[pendingROM.core];
+                        } catch {}
+                    }
+                    if (resValue) {
+                        window.EJS_defaultOptions[resConfig.key] = resValue;
+                        console.log(`Resolution: ${resConfig.key} = ${resValue}`);
+                    }
+
+                    // WebGL2 (defaults to true for cores with resolution options)
+                    let webgl2 = pendingROM.webgl2;
+                    if (webgl2 === undefined || webgl2 === null) {
+                        try {
+                            const saved = JSON.parse(localStorage.getItem('retrobox_webgl2') || '{}');
+                            webgl2 = saved[pendingROM.core];
+                        } catch {}
+                    }
+                    if (webgl2 === undefined || webgl2 === null) webgl2 = true; // default true
+                    if (!webgl2) {
+                        window.EJS_defaultOptions["webgl2Enabled"] = "disabled";
+                        console.log('WebGL2: disabled');
+                    } else {
+                        console.log('WebGL2: enabled');
+                    }
+                }
             }
+
             if (pendingROM?.gameHeight) applyGameHeight(pendingROM.gameHeight);
             window.EJS_disableAutoLang = true;
             window.EJS_language = "en";
@@ -1091,7 +1126,9 @@
                     core: pendingROM.core,
                     biosSource: typeof pendingROM.biosSource === 'string' ? pendingROM.biosSource : null,
                     gameHeight: pendingROM.gameHeight,
-                    threads: pendingROM.threads
+                    threads: pendingROM.threads,
+                    resolution: pendingROM.resolution,
+                    webgl2: pendingROM.webgl2
                 }));
                 window.location.reload();
                 return;
