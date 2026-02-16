@@ -4,6 +4,8 @@ import { networkInterfaces } from "os";
 import { reverse } from "dns/promises";
 import { readdir, access } from "fs/promises";
 import { parseArgs } from "util";
+import { execSync } from "child_process";
+import { readFileSync } from "fs";
 
 const { values: args } = parseArgs({
   args: Bun.argv.slice(2),
@@ -139,6 +141,88 @@ function broadcastPlayerList(screenId: string) {
   }
 }
 
+// === BT CONTROLLER DETECTION & POLLING ===
+function detectControllerType(name: string): string {
+  const n = name.toLowerCase();
+  if (n === 'wireless controller' || n.includes('dualshock') || n.includes('dualsense')) return 'playstation';
+  if (n.includes('xbox')) return 'xbox';
+  if (n.includes('gamesir')) return 'gamesir';
+  if (n.includes('pro controller') || n.includes('joy-con')) return 'switch';
+  if (n.includes('8bitdo')) return '8bitdo';
+  return 'generic';
+}
+
+function getControllerDisplayName(name: string, type: string): string {
+  switch (type) {
+    case 'playstation': return name.toLowerCase().includes('dualsense') ? 'DualSense' : 'DS4';
+    case 'xbox': return 'Xbox';
+    case 'gamesir': return 'GameSir';
+    case 'switch': return name.includes('Joy-Con') ? 'Joy-Con' : 'Switch Pro';
+    case '8bitdo': return '8BitDo';
+    default: return name.length > 12 ? name.substring(0, 12) : name;
+  }
+}
+
+type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null };
+let lastBtStateJson = '[]';
+
+function getBtControllers(): BtController[] {
+  try {
+    const devicesRaw = execSync("bluetoothctl devices Connected 2>/dev/null", { timeout: 2000, encoding: "utf-8" }).trim();
+    if (!devicesRaw) return [];
+
+    const inputDevices = readFileSync("/proc/bus/input/devices", "utf-8").toLowerCase();
+    const result: BtController[] = [];
+
+    for (const line of devicesRaw.split("\n")) {
+      const match = line.match(/^Device\s+([0-9A-Fa-f:]+)\s+(.+)$/);
+      if (!match) continue;
+      const [, address, name] = match;
+
+      let icon = "device";
+      try {
+        const info = execSync(`bluetoothctl info ${address} 2>/dev/null`, { timeout: 1500, encoding: "utf-8" });
+        const iconMatch = info.match(/Icon:\s*(\S+)/);
+        if (iconMatch) icon = iconMatch[1];
+      } catch {}
+
+      if (icon !== "input-gaming") continue;
+
+      const inputActive = inputDevices.includes(address.toLowerCase());
+      const type = detectControllerType(name);
+      const displayName = getControllerDisplayName(name, type);
+
+      let rssi: number | null = null;
+      try {
+        const rssiOut = execSync(`hcitool rssi ${address} 2>/dev/null`, { timeout: 1000, encoding: "utf-8" }).trim();
+        const rssiMatch = rssiOut.match(/RSSI return value:\s*(-?\d+)/);
+        if (rssiMatch) rssi = Math.round(parseInt(rssiMatch[1]) / 3) * 3;
+      } catch {}
+
+      result.push({ name, displayName, address, inputActive, type, rssi });
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+function broadcastBtState(list: BtController[]) {
+  const msg = JSON.stringify({ type: 'btControllersUpdate', controllers: list });
+  for (const [, ws] of screens) {
+    try { ws.send(msg); } catch {}
+  }
+}
+
+function pollBtState() {
+  const list = getBtControllers();
+  const json = JSON.stringify(list);
+  if (json !== lastBtStateJson) {
+    lastBtStateJson = json;
+    broadcastBtState(list);
+  }
+}
+
 const serverConfig = {
   hostname: "0.0.0.0",
   development: true,
@@ -154,6 +238,15 @@ const serverConfig = {
     if (pathname === "/ws") {
       if (server.upgrade(req, { data: { id: null, type: null, screenId: null } })) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    // Bluetooth controllers — reads connected game controllers from system
+    if (pathname === "/api/bt-controllers") {
+      try {
+        return new Response(JSON.stringify({ controllers: getBtControllers() }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ controllers: [], error: e.message }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
     }
 
     if (pathname === "/api/network-info") {
@@ -330,6 +423,8 @@ const serverConfig = {
         wsData.type = "screen";
         console.log(`Screen registered: ${screenId}`);
         ws.send(JSON.stringify({ type: "registered", screenId }));
+        // Send current BT controller state
+        try { ws.send(JSON.stringify({ type: 'btControllersUpdate', controllers: JSON.parse(lastBtStateJson) })); } catch {}
         return;
       }
 
@@ -461,6 +556,10 @@ if (TLS_CERT && TLS_KEY) {
     console.warn(`HTTPS disabled: ${e}`);
   }
 }
+
+// Start BT controller polling (broadcasts changes to all screens via WebSocket)
+setInterval(pollBtState, 2000);
+setTimeout(pollBtState, 500);
 
 console.log(`
 RetroBox Server (WebSocket + WebRTC Signaling)

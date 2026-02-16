@@ -111,6 +111,28 @@
         .controller-dot.reserved.player-2 { background: #9C27B0; }
         .controller-dot.reserved.player-3 { background: #FFC107; }
         .controller-dot .ping { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); font-size: 8px; color: rgba(255,255,255,0.5); white-space: nowrap; margin-top: 2px; font-family: monospace; }
+        .bt-controllers { position: fixed; top: calc(max(10px, 1.5vh) + max(18px, 3vmin)); right: max(10px, 1.5vw); z-index: 1000; display: flex; flex-direction: column; gap: max(3px, 0.4vmin); align-items: flex-end; }
+        .bt-controller {
+            display: flex; align-items: center; gap: max(3px, 0.4vmin);
+            background: rgba(0,0,0,0.4); backdrop-filter: blur(6px);
+            padding: max(3px, 0.35vmin) max(6px, 0.7vmin); border-radius: max(4px, 0.5vmin);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: max(9px, 1vmin); color: rgba(255,255,255,0.75);
+            border: 1px solid rgba(255,255,255,0.06);
+            animation: btFadeIn 0.3s ease-out; transition: opacity 0.3s, transform 0.3s;
+        }
+        .bt-controller.no-input { opacity: 0.45; }
+        @keyframes btFadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+        .bt-controller .bt-icon { width: max(14px, 1.7vmin); height: max(14px, 1.7vmin); flex-shrink: 0; line-height: 0; }
+        .bt-controller .bt-icon svg { width: 100%; height: 100%; display: block; }
+        .bt-controller .bt-name { max-width: max(55px, 7vmin); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0.3px; }
+        .bt-signal { display: flex; align-items: flex-end; gap: max(1px, 0.15vmin); height: max(10px, 1.3vmin); opacity: 0.6; }
+        .bt-signal .bar { width: max(3px, 0.3vmin); border-radius: max(1px, 0.1vmin); background: rgba(255,255,255,0.3); transition: background 0.5s; }
+        .bt-signal .bar.active { background: rgba(255,255,255,0.7); } /* fallback; overridden by inline brand color */
+        .bt-signal .bar:nth-child(1) { height: 25%; }
+        .bt-signal .bar:nth-child(2) { height: 50%; }
+        .bt-signal .bar:nth-child(3) { height: 75%; }
+        .bt-signal .bar:nth-child(4) { height: 100%; }
         @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } }
 
         .qr-container { position: fixed; top: 20px; left: 20px; z-index: 999; text-align: center; background: rgba(0, 0, 0, 0.9); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); transition: opacity 0.3s, transform 0.3s, z-index 0s; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
@@ -151,6 +173,7 @@
         <div><div class="text">Audio muted</div><div class="hint">Press any key or tap to enable</div></div>
     </div>
     <div class="controllers" id="controllers"></div>
+    <div class="bt-controllers" id="btControllers"></div>
     <div class="status connecting" id="status">Connecting...</div>
     <div id="pauseOverlay"></div>
     <game-menu id="gameMenu" mode="screen"></game-menu>
@@ -356,6 +379,10 @@
                     break;
 
                 case 'heartbeat-ack':
+                    break;
+
+                case 'btControllersUpdate':
+                    renderBtControllers(msg.controllers || []);
                     break;
 
                 case 'startGame':
@@ -662,6 +689,79 @@
 
             // Update game menu player status
             gameMenu?.updatePlayerStatus(playerMap);
+        }
+
+        // ============================================
+        // BLUETOOTH CONTROLLERS (WebSocket-driven, real-time)
+        // ============================================
+        // Brand-specific SVG icons (MDI / simple-icons, viewBox 0 0 24 24)
+        const BT_ICONS = {
+            playstation: { color: '#4A90D9', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.5 4.27c1.38.26 3.4.87 4.5 1.23c2.75.95 3.69 2.13 3.69 4.79c0 2.6-1.6 3.58-3.64 2.6V8.05c0-.55-.1-1.08-.64-1.23c-.41-.13-.65.25-.65.81v12.1L9.5 18.69zm3.87 13.35l5.25-1.87c.6-.21.69-.51.21-.67c-.49-.16-1.36-.11-1.96.1l-3.5 1.23v-1.96l.21-.07s1.01-.38 2.42-.51c1.43-.16 3.17.02 4.53.53c1.54.49 1.72 1.21 1.33 1.7c-.4.5-1.36.85-1.36.85l-7.13 2.55zm-9.87-.2C1.93 17 1.66 16.05 2.38 15.5c.67-.5 1.8-.85 1.8-.85L8.86 13v1.88L5.5 16.09c-.6.21-.69.51-.21.67s1.36.12 1.95-.1l1.62-.58v1.69l-.32.06c-1.62.26-3.34.17-5.04-.41"/></svg>' },
+            xbox: { color: '#5DC21E', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.43 3.72c.07-.06.14-.12.19-.16C8.18 2.55 10 2 12 2c1.88 0 3.64.5 5.14 1.42c.11.08.4.27.56.46C16.25 2.28 12 5.7 12 5.7c-1.5-1.13-2.83-1.9-3.84-2.2c-.85-.21-1.43 0-1.7.2m12.88 1.51c-.05-.05-.1-.1-.14-.15c-.36-.4-.82-.5-1.2-.47c-.39.12-2.1.73-4.2 2.72c0 0 2.37 2.3 3.82 4.65s2.31 4.2 1.78 6.77C21 16.95 22 14.59 22 12c0-2.62-1-5-2.66-6.79m-3.61 7.75c-.65-.72-1.6-1.75-2.87-3.01c-.27-.27-.56-.55-.86-.85c0 0-.47.46-1.07 1.07c-.77.77-1.76 1.78-2.32 2.37c-.98 1.05-3.8 4.35-3.96 6.2c0 0-.65-1.46.75-4.85c.9-2.21 3.6-5.53 4.75-6.61c0 0-1.03-1.14-2.33-1.93l-.05-.03c-.63-.37-1.31-.66-1.97-.7c-.67.05-1.09.54-1.09.54A9.95 9.95 0 0 0 2 12a10 10 0 0 0 10 10c2.93 0 5.57-1.26 7.4-3.27c0 0-.21-1.33-1.56-3.23c-.31-.43-1.47-1.81-2.11-2.54"/></svg>' },
+            switch: { color: '#E60012', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.04 20.4H7.12c-.93 0-1.82-.4-2.48-1.04C4 18.7 3.6 17.81 3.6 16.88V7.12c0-.93.4-1.82 1.04-2.48C5.3 4 6.19 3.62 7.12 3.62h2.92zM7.12 2A5.12 5.12 0 0 0 2 7.12v9.76C2 19.71 4.29 22 7.12 22h4.53V2zM5.11 8c0 1.04.84 1.88 1.89 1.88c1.03 0 1.87-.84 1.87-1.88S8.03 6.12 7 6.12c-1.05 0-1.89.84-1.89 1.88m12.5 3c1.11 0 2.01.89 2.01 2c0 1.12-.9 2-2.01 2s-2.03-.88-2.03-2c0-1.11.92-2 2.03-2m-.73 11A5.12 5.12 0 0 0 22 16.88V7.12C22 4.29 19.71 2 16.88 2h-3.23v20z"/></svg>' },
+            gamesir: { color: '#E67E22', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h10a6 6 0 0 1 6 6a6 6 0 0 1-6 6c-1.78 0-3.37-.77-4.47-2h-1.06c-1.1 1.23-2.69 2-4.47 2a6 6 0 0 1-6-6a6 6 0 0 1 6-6M6 9v2H4v2h2v2h2v-2h2v-2H8V9zm9.5 3a1.5 1.5 0 0 0-1.5 1.5a1.5 1.5 0 0 0 1.5 1.5a1.5 1.5 0 0 0 1.5-1.5a1.5 1.5 0 0 0-1.5-1.5m3-3a1.5 1.5 0 0 0-1.5 1.5a1.5 1.5 0 0 0 1.5 1.5a1.5 1.5 0 0 0 1.5-1.5A1.5 1.5 0 0 0 18.5 9"/></svg>' },
+            '8bitdo': { color: '#D4A017', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.97 16L5 19c-.33.3-.77.5-1.25.5A1.75 1.75 0 0 1 2 17.75v-.25l1-7.38A4.524 4.524 0 0 1 7.5 6h9c2.36 0 4.29 1.81 4.5 4.12l1 7.38v.25a1.75 1.75 0 0 1-1.75 1.75c-.48 0-.92-.2-1.25-.5l-2.97-3zM7 8v2H5v1h2v2h1v-2h2v-1H8V8zm9.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m-1.75 1.75a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m3.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75M16.5 11.5a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75"/></svg>' },
+            generic: { color: '#999', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.97 16L5 19c-.33.3-.77.5-1.25.5A1.75 1.75 0 0 1 2 17.75v-.25l1-7.38A4.524 4.524 0 0 1 7.5 6h9c2.36 0 4.29 1.81 4.5 4.12l1 7.38v.25a1.75 1.75 0 0 1-1.75 1.75c-.48 0-.92-.2-1.25-.5l-2.97-3zM7 8v2H5v1h2v2h1v-2h2v-1H8V8zm9.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m-1.75 1.75a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m3.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75M16.5 11.5a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75"/></svg>' }
+        };
+
+        function rssiToBars(rssi) {
+            if (rssi === null || rssi === undefined) return 0;
+            if (rssi >= -25) return 4;  // excellent — right next to it
+            if (rssi >= -50) return 3;  // strong — same room
+            if (rssi >= -60) return 2;  // good — gaming distance
+            if (rssi >= -75) return 1;  // weak — far / through walls
+            return 0;
+        }
+
+        function renderBtControllers(btControllersList) {
+            const container = document.getElementById('btControllers');
+            const list = btControllersList || [];
+            const incomingAddrs = new Set(list.map(c => c.address));
+            const existingEls = new Map();
+            for (const el of [...container.children]) existingEls.set(el.dataset.addr, el);
+
+            // Remove gone controllers (fade out then remove)
+            for (const [addr, el] of existingEls) {
+                if (!incomingAddrs.has(addr)) {
+                    el.style.opacity = '0'; el.style.transform = 'translateX(10px)';
+                    setTimeout(() => el.remove(), 300);
+                }
+            }
+
+            // Add or update each controller
+            for (const c of list) {
+                const info = BT_ICONS[c.type] || BT_ICONS.generic;
+                const bars = rssiToBars(c.rssi);
+                const title = c.rssi !== null ? c.name + ' (' + c.rssi + ' dBm)' : c.name;
+                const existing = existingEls.get(c.address);
+
+                if (existing) {
+                    // Update in-place — no animation re-trigger
+                    existing.title = title;
+                    existing.classList.toggle('no-input', !c.inputActive);
+                    const barEls = existing.querySelectorAll('.bt-signal .bar');
+                    barEls.forEach((bar, i) => {
+                        const active = (i + 1) <= bars;
+                        bar.classList.toggle('active', active);
+                        bar.style.background = active ? info.color : '';
+                    });
+                } else {
+                    // New controller — create with entrance animation
+                    const div = document.createElement('div');
+                    div.className = 'bt-controller' + (c.inputActive ? '' : ' no-input');
+                    div.dataset.addr = c.address;
+                    div.title = title;
+                    const signalHtml = [1,2,3,4].map(i => {
+                        const active = i <= bars;
+                        return '<div class="bar' + (active ? ' active' : '') + '"'
+                            + (active ? ' style="background:' + info.color + '"' : '') + '></div>';
+                    }).join('');
+                    div.innerHTML = '<span class="bt-icon" style="color:' + info.color + '">' + info.svg + '</span>'
+                        + '<span class="bt-name">' + (c.displayName || c.name) + '</span>'
+                        + '<div class="bt-signal">' + signalHtml + '</div>';
+                    container.appendChild(div);
+                }
+            }
         }
 
         // Initialize
