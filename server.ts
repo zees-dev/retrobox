@@ -316,7 +316,6 @@ const serverConfig = {
       // Special games that have their own directory with bios/parent rom requirements
       // Key format: "gameDirName" -> { bios path relative to game dir, parentRom path }
       const specialGames: Record<string, { biosFile?: string; parentRomFile?: string }> = {
-        "kof99": { biosFile: "arcade.zip" },
         "kof99ae": { biosFile: "neogeo.zip", parentRomFile: "kof99.zip" },
       };
 
