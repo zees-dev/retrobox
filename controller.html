@@ -315,6 +315,28 @@
         .ping-badge.ping-warn { color: #FF9800; }
         .ping-badge.ping-bad { color: #f44336; }
 
+        .native-overlay {
+            position: fixed; inset: 0; z-index: 10000;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            display: none; flex-direction: column;
+            align-items: center; justify-content: center;
+            text-align: center; color: #fff;
+        }
+        .native-overlay.visible { display: flex; }
+        .native-content { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 20px; }
+        .native-icon { font-size: 56px; animation: nativePulse 3s ease-in-out infinite; }
+        @keyframes nativePulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.05); } }
+        .native-title { font-size: 22px; font-weight: bold; word-break: break-word; max-width: 80vw; }
+        .native-subtitle { font-size: 14px; color: rgba(255,255,255,0.5); letter-spacing: 1px; text-transform: uppercase; }
+        .native-quit-btn {
+            margin-top: 24px; padding: 14px 36px;
+            background: rgba(244, 67, 54, 0.15); border: 2px solid rgba(244, 67, 54, 0.35);
+            border-radius: 8px; color: #f44336; font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s;
+        }
+        .native-quit-btn:active { background: rgba(244, 67, 54, 0.3); border-color: #f44336; transform: scale(0.97); }
+        .native-state { font-size: 12px; color: rgba(255,255,255,0.3); margin-top: 8px; }
+
         .test-controller { position: fixed; top: 15px; right: 65px; z-index: 999; pointer-events: auto; }
         .test-controller.hidden { display: none; }
         .test-controller-toggle { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 6px; font-size: 20px; cursor: pointer; transition: all 0.3s; }
@@ -351,6 +373,15 @@
         <div class="test-controller-links">
             <a href="https://hardwaretester.com/gamepad" target="_blank" rel="noopener" class="test-controller-link">hardwaretester.com</a>
             <a href="https://gamepadtester.com/" target="_blank" rel="noopener" class="test-controller-link">gamepadtester.com</a>
+        </div>
+    </div>
+    <div class="native-overlay" id="nativeOverlay">
+        <div class="native-content">
+            <div class="native-icon">🖥️</div>
+            <div class="native-title" id="nativeGameName">Game</div>
+            <div class="native-subtitle">Native Mode</div>
+            <button class="native-quit-btn" id="nativeQuitBtn">Quit to Menu</button>
+            <div class="native-state" id="nativeStateLabel"></div>
         </div>
     </div>
     <game-menu id="gameMenu" mode="controller"></game-menu>
@@ -773,6 +804,34 @@
                         window._updateScreenLogsTab();
                     }
                     break;
+
+                case 'nativeLaunchResult':
+                    if (msg.ok) {
+                        showNativeOverlay(msg.core, msg.rom);
+                    } else {
+                        console.error('Native launch failed:', msg.error);
+                        alert('Native launch failed: ' + (msg.error || 'Unknown error'));
+                        gameMenu?.hideLoading();
+                    }
+                    break;
+
+                case 'nativeState':
+                    if (msg.state === 'running' || msg.state === 'launching') {
+                        showNativeOverlay(msg.core, msg.rom);
+                    } else if (msg.state === 'idle' || msg.state === 'stopping') {
+                        hideNativeOverlay();
+                    }
+                    break;
+
+                case 'nativeExit':
+                    hideNativeOverlay();
+                    break;
+
+                case 'nativeQuitResult':
+                    if (!msg.ok) {
+                        console.error('Native quit failed:', msg.error);
+                    }
+                    break;
             }
         }
 
@@ -936,6 +995,39 @@
                 sendToScreen({ type: 'menuSetting', setting, value });
             });
         })();
+
+        // ============================================
+        // NATIVE MODE OVERLAY
+        // ============================================
+        function showNativeOverlay(core, rom) {
+            const overlay = document.getElementById('nativeOverlay');
+            const gameName = document.getElementById('nativeGameName');
+            const stateLabel = document.getElementById('nativeStateLabel');
+            if (rom) {
+                const name = rom.split('/').pop().replace(/\.(zip|7z|n64|z64|sfc|smc|gba|gb|bin|cue|iso|md|gen)$/i, '');
+                gameName.textContent = name;
+            }
+            stateLabel.textContent = 'Running on RetroArch';
+            overlay.classList.add('visible');
+            gameMenu?.hide();
+            gameMenu?.hideLoading();
+            document.getElementById('game').style.display = 'none';
+            document.getElementById('testController').classList.add('hidden');
+        }
+
+        function hideNativeOverlay() {
+            document.getElementById('nativeOverlay').classList.remove('visible');
+            gameMenu?.show();
+            gameMenu?.hideLoading();
+            document.getElementById('testController').classList.remove('hidden');
+        }
+
+        document.getElementById('nativeQuitBtn').onclick = () => {
+            if (wsManager?.isOpen) {
+                wsManager.send({ type: 'quitNative' });
+                document.getElementById('nativeStateLabel').textContent = 'Quitting...';
+            }
+        };
 
         window.addEventListener('beforeunload', () => {
             if (pc) try { pc.close(); } catch {}

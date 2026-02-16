@@ -7,6 +7,22 @@ import { parseArgs } from "util";
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
 
+// ── Native RetroArch (optional) ─────────────────────────────────────────────
+let native: typeof import("./native") | null = null;
+try {
+  native = await import("./native");
+  const probe = native.probeNativeSupport();
+  if (probe.supported) {
+    const cores = Object.entries(probe.cores).filter(([, ok]) => ok).map(([s]) => s);
+    console.log(`[native] Supported — cores: ${cores.join(", ")}`);
+  } else {
+    console.log(`[native] Not supported (retroarch=${probe.retroarch} cage=${probe.cage} seatd=${probe.seatd})`);
+    native = null;
+  }
+} catch (e: any) {
+  console.log(`[native] Disabled: ${e.message}`);
+}
+
 const { values: args } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
@@ -395,6 +411,49 @@ const serverConfig = {
       }
     }
 
+    // ── Native RetroArch API ──────────────────────────────────────────────
+    if (pathname === "/api/native/status") {
+      if (!native) return new Response(JSON.stringify({ state: "idle", supported: false, cores: {} }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      return new Response(JSON.stringify(native.getNativeStatus()), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+    }
+
+    if (pathname === "/api/native/launch" && req.method === "POST") {
+      if (!native) return new Response(JSON.stringify({ ok: false, error: "Native mode not available" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      try {
+        const body = await req.json() as { core?: string; rom?: string; coreOptions?: Record<string, string> };
+        if (!body.core || !body.rom) return new Response(JSON.stringify({ ok: false, error: "Missing core or rom" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+
+        // Resolve ROM path (relative to ROOT_DIR or absolute)
+        const romPath = body.rom.startsWith("/") ? body.rom : join(ROOT_DIR, body.rom);
+
+        const result = await native.launchNative(body.core, romPath, {
+          coreOptions: body.coreOptions,
+          onExit: (code, signal) => {
+            // Broadcast native exit to all screens + controllers
+            const msg = JSON.stringify({ type: "nativeExit", code, signal });
+            for (const [, ws] of screens) { try { ws.send(msg); } catch {} }
+            for (const [, ctrl] of controllers) { try { ctrl.ws.send(msg); } catch {} }
+          },
+        });
+        const status = result.ok ? 200 : 400;
+        return new Response(JSON.stringify(result), { status, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
+    if (pathname === "/api/native/quit" && req.method === "POST") {
+      if (!native) return new Response(JSON.stringify({ ok: false, error: "Native mode not available" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      const result = native.quitNative();
+      return new Response(JSON.stringify(result), { status: result.ok ? 200 : 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+    }
+
+    if (pathname === "/api/native/cores") {
+      if (!native) return new Response(JSON.stringify({ supported: false, cores: {} }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      const probe = native.probeNativeSupport();
+      return new Response(JSON.stringify({ supported: probe.supported, cores: probe.cores }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+    }
+
     if (pathname !== "/" && pathname.endsWith("/")) pathname = pathname.slice(0, -1);
     if (pathname === "/") pathname = "/screen.html";
 
@@ -420,7 +479,7 @@ const serverConfig = {
   websocket: {
     open(ws) {},
 
-    message(ws, message) {
+    async message(ws, message) {
       const data = typeof message === "string" ? message : new TextDecoder().decode(message);
       let msg;
       try { msg = JSON.parse(data); } catch { return; }
@@ -446,7 +505,8 @@ const serverConfig = {
         const { controllerId, screenId, requestedPlayerNum } = msg;
         if (!controllerId || !screenId) { ws.send(JSON.stringify({ type: "error", error: "Missing controllerId or screenId" })); return; }
         const screenWs = screens.get(screenId);
-        if (!screenWs) { ws.send(JSON.stringify({ type: "error", error: "Screen not found" })); return; }
+        const nativeRunning = native && native.getNativeStatus().state !== 'idle';
+        if (!screenWs && !nativeRunning) { ws.send(JSON.stringify({ type: "error", error: "Screen not found" })); return; }
 
         const existing = controllers.get(controllerId);
         let playerNum: number;
@@ -474,12 +534,49 @@ const serverConfig = {
         wsData.screenId = screenId;
         console.log(`Controller registered: ${controllerId} -> screen ${screenId} (Player ${playerNum + 1})${typeof requestedPlayerNum === 'number' ? ' [requested]' : ''}`);
         ws.send(JSON.stringify({ type: "registered", controllerId, playerNum }));
-        screenWs.send(JSON.stringify({ type: "controller-connected", controllerId, playerNum }));
+        if (screenWs) screenWs.send(JSON.stringify({ type: "controller-connected", controllerId, playerNum }));
         broadcastPlayerList(screenId);
+        // Send native state if active (screen may be dead during native mode)
+        if (nativeRunning) {
+          ws.send(JSON.stringify({ type: "nativeState", ...native!.getNativeStatus() }));
+        }
         return;
       }
 
       if (msg.type === "heartbeat") { ws.send(JSON.stringify({ type: "heartbeat-ack" })); return; }
+
+      // ── Native RetroArch WebSocket commands ─────────────────────────────
+      if (msg.type === "getNativeState") {
+        if (!native) { ws.send(JSON.stringify({ type: "nativeState", state: "idle", supported: false, cores: {} })); return; }
+        ws.send(JSON.stringify({ type: "nativeState", ...native.getNativeStatus() })); return;
+      }
+
+      if (msg.type === "launchNative") {
+        if (!native) { ws.send(JSON.stringify({ type: "nativeLaunchResult", ok: false, error: "Native mode not available" })); return; }
+        const romPath = msg.rom?.startsWith("/") ? msg.rom : join(ROOT_DIR, msg.rom || "");
+        const result = await native.launchNative(msg.core, romPath, {
+          coreOptions: msg.coreOptions,
+          onExit: (code, signal) => {
+            const exitMsg = JSON.stringify({ type: "nativeExit", code, signal });
+            for (const [, sws] of screens) { try { sws.send(exitMsg); } catch {} }
+            for (const [, ctrl] of controllers) { try { ctrl.ws.send(exitMsg); } catch {} }
+          },
+        });
+        ws.send(JSON.stringify({ type: "nativeLaunchResult", ...result, core: msg.core, rom: msg.rom }));
+        if (result.ok) {
+          // Broadcast to all clients
+          const stateMsg = JSON.stringify({ type: "nativeState", ...native.getNativeStatus() });
+          for (const [, sws] of screens) { try { sws.send(stateMsg); } catch {} }
+          for (const [, ctrl] of controllers) { try { ctrl.ws.send(stateMsg); } catch {} }
+        }
+        return;
+      }
+
+      if (msg.type === "quitNative") {
+        if (!native) { ws.send(JSON.stringify({ type: "nativeQuitResult", ok: false, error: "Native mode not available" })); return; }
+        const result = native.quitNative();
+        ws.send(JSON.stringify({ type: "nativeQuitResult", ...result })); return;
+      }
 
       // WebRTC signaling relay
       if (msg.type === "webrtc-offer") {

@@ -27,6 +27,9 @@
                 this._loadOnStart = false;
                 this._resolution = {}; // Per-core resolution map: { psx: 'disabled', n64: '640x480', ... }
                 this._webgl2 = {}; // Per-core WebGL2 toggle: { n64: true, mednafen_psx_hw: true, ... }
+                this._nativeCores = {};
+                this._nativeSupported = false;
+                this._playMode = 'web'; // 'web' | 'native'
                 this._showingSettings = false;
                 this.gamePresets = {};
 
@@ -63,6 +66,9 @@
                 this.resolutionRow = this.shadowRoot.getElementById('resolutionRow');
                 this.webgl2Toggle = this.shadowRoot.getElementById('webgl2Toggle');
                 this.webgl2Row = this.shadowRoot.getElementById('webgl2Row');
+                this.modeSelector = this.shadowRoot.getElementById('modeSelector');
+                this.modeWebBtn = this.shadowRoot.getElementById('modeWeb');
+                this.modeNativeBtn = this.shadowRoot.getElementById('modeNative');
                 this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
                 this.presetSection = this.shadowRoot.getElementById('presetSection');
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
@@ -531,6 +537,36 @@
                             0%, 100% { transform: scale(1); opacity: 1; }
                             50% { transform: scale(1.15); opacity: 0.8; }
                         }
+
+                        .mode-selector {
+                            display: none;
+                            gap: 0;
+                            border-radius: 6px;
+                            overflow: hidden;
+                            border: 2px solid rgba(255, 255, 255, 0.15);
+                            height: 36px;
+                        }
+                        .mode-selector.visible { display: flex; }
+                        .mode-btn {
+                            flex: 1;
+                            border: none;
+                            background: rgba(255, 255, 255, 0.05);
+                            color: rgba(255, 255, 255, 0.4);
+                            font-size: 13px;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            gap: 5px;
+                            padding: 0 12px;
+                        }
+                        .mode-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.7); }
+                        .mode-btn.active { color: #fff; font-weight: 600; }
+                        .mode-btn.active[data-mode="web"] { background: rgba(76, 175, 80, 0.2); }
+                        .mode-btn.active[data-mode="native"] { background: rgba(33, 150, 243, 0.25); }
+                        .mode-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+                        .mode-btn + .mode-btn { border-left: 1px solid rgba(255, 255, 255, 0.08); }
                     </style>
 
                     <div class="player-status" id="playerStatus">
@@ -566,6 +602,10 @@
                                 <input type="text" id="biosUrlInput" placeholder="BIOS URL (optional)">
                                 <button class="upload-btn" id="biosUploadButton">+</button>
                                 <select id="consoleSelect" class="full-width"><option value="">Select Console</option></select>
+                            </div>
+                            <div class="mode-selector full-width" id="modeSelector">
+                                <button class="mode-btn active" data-mode="web" id="modeWeb">🌐 Web</button>
+                                <button class="mode-btn" data-mode="native" id="modeNative" disabled>🖥️ Native</button>
                             </div>
                             <button class="start-button full-width" id="startButton" disabled><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button>
                         </div>
@@ -699,6 +739,7 @@
 
                 // Fetch presets from API
                 await this.loadPresets();
+                await this.fetchNativeSupport();
 
                 this.populateSelectors();
                 this.setupEventListeners();
@@ -870,6 +911,7 @@
                     this.updatePlayerCountOptions();
                     this.clearManualInputs();
                     this.updateResolutionOptions();
+                    this.updateModeSelector();
                     this.updateStartButtonState();
                 };
 
@@ -956,7 +998,21 @@
 
                 this.consoleSelect.onchange = () => {
                     this.updateResolutionOptions();
+                    this.updateModeSelector();
                     this.updateStartButtonState();
+                };
+
+                // Mode selector buttons
+                this.modeWebBtn.onclick = () => {
+                    this._playMode = 'web';
+                    localStorage.setItem('retrobox_playMode', 'web');
+                    this.updateModeSelector();
+                };
+                this.modeNativeBtn.onclick = () => {
+                    if (this.modeNativeBtn.disabled) return;
+                    this._playMode = 'native';
+                    localStorage.setItem('retrobox_playMode', 'native');
+                    this.updateModeSelector();
                 };
 
                 this.startButton.onclick = () => {
@@ -980,10 +1036,39 @@
                         gameHeight: this._currentGameHeight < 100 ? this._currentGameHeight : null,
                         threads: this._threads,
                         resolution: resolutionValue,
-                        webgl2: webgl2Value
+                        webgl2: webgl2Value,
+                        playMode: this._playMode
                     };
 
                     this.showLoading();
+
+                    // Native mode launch
+                    if (this._playMode === 'native') {
+                        const romPath = typeof this._currentRomSource === 'string' ? this._currentRomSource : null;
+                        if (!romPath) {
+                            alert('Native mode requires preset ROMs (no file uploads).');
+                            this.hideLoading();
+                            return;
+                        }
+                        if (this._mode === 'controller' && this._ws?.readyState === WebSocket.OPEN) {
+                            this._ws.send(JSON.stringify({ type: 'launchNative', core, rom: romPath }));
+                        } else {
+                            fetch('/api/native/launch', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ core, rom: romPath })
+                            }).then(r => r.json()).then(result => {
+                                if (!result.ok) {
+                                    alert('Native launch failed: ' + result.error);
+                                    this.hideLoading();
+                                }
+                            }).catch(e => {
+                                alert('Native launch error: ' + e.message);
+                                this.hideLoading();
+                            });
+                        }
+                        return;
+                    }
 
                     if (this._mode === 'controller' && this._ws?.readyState === WebSocket.OPEN) {
                         if (this._currentRomSource instanceof File || this._currentBiosSource instanceof File) {
@@ -1113,6 +1198,45 @@
                     this.presetSection.classList.remove('hidden');
                     this.manualConfigSection.classList.add('hidden');
                 }
+            }
+
+            async fetchNativeSupport() {
+                try {
+                    const res = await fetch('/api/native/cores');
+                    if (res.ok) {
+                        const data = await res.json();
+                        this._nativeSupported = data.supported;
+                        this._nativeCores = data.cores || {};
+                        if (this._nativeSupported) {
+                            this.modeSelector.classList.add('visible');
+                            const saved = localStorage.getItem('retrobox_playMode');
+                            if (saved === 'native') this._playMode = 'native';
+                            this.updateModeSelector();
+                        }
+                    }
+                } catch (e) {
+                    console.log('Native mode not available:', e.message);
+                }
+            }
+
+            updateModeSelector() {
+                if (!this._nativeSupported) return;
+                const core = this.consoleSelect.value;
+                const nativeAvailable = !!(core && this._nativeCores[core]);
+
+                this.modeNativeBtn.disabled = !nativeAvailable;
+
+                if (this._playMode === 'native' && !nativeAvailable) {
+                    this._playMode = 'web';
+                }
+
+                this.modeWebBtn.classList.toggle('active', this._playMode === 'web');
+                this.modeNativeBtn.classList.toggle('active', this._playMode === 'native');
+
+                const playIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+                this.startButton.innerHTML = this._playMode === 'native'
+                    ? playIcon + 'Start Native'
+                    : playIcon + 'Start';
             }
 
             loadPersistedSettings() {
@@ -1314,6 +1438,7 @@
                 this._currentBiosSource = game.bios || null;
                 this.consoleSelect.value = core;
                 this.updateResolutionOptions();
+                this.updateModeSelector();
                 this.updateStartButtonState();
             }
 

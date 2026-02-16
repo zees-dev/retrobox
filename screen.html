@@ -941,6 +941,29 @@
         // GAME LOADING
         // ============================================
         function loadROM(gameData) {
+            // Native mode: call API directly (kiosk will die after this)
+            if (gameData.playMode === 'native') {
+                gameMenu?.setLoadingText('Launching native mode...');
+                gameMenu?.showLoading();
+                fetch('/api/native/launch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ core: gameData.core, rom: gameData.romSource })
+                }).then(r => r.json()).then(result => {
+                    if (!result.ok) {
+                        console.error('Native launch failed:', result.error);
+                        gameMenu?.hideLoading();
+                        gameMenu?.show();
+                    }
+                    // If ok, kiosk stops → this page dies → RetroArch takes over
+                }).catch(e => {
+                    console.error('Native launch error:', e);
+                    gameMenu?.hideLoading();
+                    gameMenu?.show();
+                });
+                return;
+            }
+
             // Persist settings to localStorage (works for both screen and controller-initiated games)
             if (gameData.gameHeight != null) {
                 localStorage.setItem('retrobox_gameHeight', gameData.gameHeight);
