@@ -163,7 +163,7 @@ function getControllerDisplayName(name: string, type: string): string {
   }
 }
 
-type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null };
+type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null; battery: number | null; batteryStatus: string | null };
 let lastBtStateJson = '[]';
 
 function getBtControllers(): BtController[] {
@@ -199,7 +199,20 @@ function getBtControllers(): BtController[] {
         if (rssiMatch) rssi = Math.round(parseInt(rssiMatch[1]) / 3) * 3;
       } catch {}
 
-      result.push({ name, displayName, address, inputActive, type, rssi });
+      // Battery from /sys/class/power_supply (hid-sony, xpadneo, etc.)
+      let battery: number | null = null;
+      let batteryStatus: string | null = null;
+      try {
+        const addrLower = address.toLowerCase();
+        const entries = execSync("ls /sys/class/power_supply/ 2>/dev/null", { timeout: 500, encoding: "utf-8" }).trim().split("\n");
+        const match = entries.find(e => e.toLowerCase().includes(addrLower));
+        if (match) {
+          battery = parseInt(readFileSync(`/sys/class/power_supply/${match}/capacity`, "utf-8").trim());
+          batteryStatus = readFileSync(`/sys/class/power_supply/${match}/status`, "utf-8").trim();
+        }
+      } catch {}
+
+      result.push({ name, displayName, address, inputActive, type, rssi, battery, batteryStatus });
     }
     return result;
   } catch {

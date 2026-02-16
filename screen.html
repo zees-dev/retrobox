@@ -100,7 +100,7 @@
 
         .controllers { position: fixed; top: max(10px, 1.5vh); right: max(10px, 1.5vw); z-index: 1000; display: flex; gap: max(4px, 0.8vmin); }
         .controller-dot { width: max(6px, 1vmin); height: max(6px, 1vmin); border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); transition: all 0.3s; position: relative; }
-        .controller-dot.active { width: max(10px, 1.5vmin); height: max(10px, 1.5vmin); border: none; animation: pulse 2s ease-in-out infinite; }
+        .controller-dot.active { width: max(10px, 1.5vmin); height: max(10px, 1.5vmin); border: none; animation: pulse 5s ease-in-out infinite; }
         .controller-dot.active.player-0 { background: #4CAF50; box-shadow: 0 0 max(6px, 1vmin) rgba(76, 175, 80, 0.5); }
         .controller-dot.active.player-1 { background: #2196F3; box-shadow: 0 0 max(6px, 1vmin) rgba(33, 150, 243, 0.5); }
         .controller-dot.active.player-2 { background: #9C27B0; box-shadow: 0 0 max(6px, 1vmin) rgba(156, 39, 176, 0.5); }
@@ -119,13 +119,18 @@
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: max(9px, 1vmin); color: rgba(255,255,255,0.75);
             border: 1px solid rgba(255,255,255,0.06);
-            animation: btFadeIn 0.3s ease-out; transition: opacity 0.3s, transform 0.3s;
+            animation: btFadeIn 0.3s ease-out; transition: opacity 0.3s, transform 0.3s, border-color 0.3s;
         }
+        .bt-controller.charging .bt-name { animation: btChargePulse 3s ease-in-out infinite; }
+        .bt-controller.charging .bt-batt-wrap { animation: btChargePulse 3s ease-in-out infinite; }
+        .bt-controller.charging .bt-icon { animation: btChargePulse 3s ease-in-out infinite; }
+        @keyframes btChargePulse { 0%,100% { opacity: 1; color: rgba(255,255,255,0.75); } 50% { opacity: 0.85; color: #FFE082; } }
         .bt-controller.no-input { opacity: 0.45; }
         @keyframes btFadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
         .bt-controller .bt-icon { width: max(14px, 1.7vmin); height: max(14px, 1.7vmin); flex-shrink: 0; line-height: 0; }
         .bt-controller .bt-icon svg { width: 100%; height: 100%; display: block; }
-        .bt-controller .bt-name { max-width: max(55px, 7vmin); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0.3px; }
+        .bt-controller .bt-name { min-width: max(20px, 2.5vmin); max-width: max(55px, 7vmin); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0.3px; text-align: center; }
+        .bt-batt-wrap { display: flex; align-items: center; line-height: 0; opacity: 0.7; }
         .bt-signal { display: flex; align-items: flex-end; gap: max(1px, 0.15vmin); height: max(10px, 1.3vmin); opacity: 0.6; }
         .bt-signal .bar { width: max(3px, 0.3vmin); border-radius: max(1px, 0.1vmin); background: rgba(255,255,255,0.3); transition: background 0.5s; }
         .bt-signal .bar.active { background: rgba(255,255,255,0.7); } /* fallback; overridden by inline brand color */
@@ -133,7 +138,7 @@
         .bt-signal .bar:nth-child(2) { height: 50%; }
         .bt-signal .bar:nth-child(3) { height: 75%; }
         .bt-signal .bar:nth-child(4) { height: 100%; }
-        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } }
+        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.01); opacity: 0.8; } }
 
         .qr-container { position: fixed; top: 20px; left: 20px; z-index: 999; text-align: center; background: rgba(0, 0, 0, 0.9); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); transition: opacity 0.3s, transform 0.3s, z-index 0s; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
         .qr-container.hidden { opacity: 0; transform: translateY(-20px); pointer-events: none; }
@@ -704,6 +709,24 @@
             generic: { color: '#999', svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.97 16L5 19c-.33.3-.77.5-1.25.5A1.75 1.75 0 0 1 2 17.75v-.25l1-7.38A4.524 4.524 0 0 1 7.5 6h9c2.36 0 4.29 1.81 4.5 4.12l1 7.38v.25a1.75 1.75 0 0 1-1.75 1.75c-.48 0-.92-.2-1.25-.5l-2.97-3zM7 8v2H5v1h2v2h1v-2h2v-1H8V8zm9.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m-1.75 1.75a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75m3.5 0a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75M16.5 11.5a.75.75 0 0 0-.75.75a.75.75 0 0 0 .75.75a.75.75 0 0 0 .75-.75a.75.75 0 0 0-.75-.75"/></svg>' }
         };
 
+        function batteryIcon(pct, status) {
+            if (pct === null || pct === undefined) return '';
+            const bars = pct >= 60 ? 3 : pct >= 25 ? 2 : pct >= 10 ? 1 : 0;
+            const charging = status === 'Charging' || status === 'Full';
+            const outline = charging ? '#FFD54F' : (pct < 10 ? '#f44336' : 'rgba(255,255,255,0.7)');
+            const fill = pct < 10 ? '#f44336' : 'rgba(255,255,255,0.7)';
+            const w = window.innerWidth > 1200 ? 18 : 14;
+            const h = window.innerWidth > 1200 ? 9 : 7;
+            return '<svg class="bt-batt" viewBox="0 0 20 10" width="' + w + '" height="' + h + '">'
+                + '<rect x="0.5" y="0.5" width="16" height="9" rx="1.5" fill="none" stroke="' + outline + '" stroke-width="1"/>'
+                + '<rect x="16.5" y="3" width="2" height="4" rx="0.5" fill="' + outline + '"/>'
+                + (bars >= 1 ? '<rect x="2" y="2" width="4" height="6" rx="0.5" fill="' + fill + '"/>' : '')
+                + (bars >= 2 ? '<rect x="7" y="2" width="4" height="6" rx="0.5" fill="' + fill + '"/>' : '')
+                + (bars >= 3 ? '<rect x="12" y="2" width="3" height="6" rx="0.5" fill="' + fill + '"/>' : '')
+                + (charging ? '<path d="M9.5 1l-3 4h2.2L7 9l4.5-4.5h-2z" fill="#FFD54F"><animate attributeName="opacity" values="1;0.5;1" dur="0.8s" repeatCount="indefinite"/></path>' : '')
+                + '</svg>';
+        }
+
         function rssiToBars(rssi) {
             if (rssi === null || rssi === undefined) return 0;
             if (rssi >= -25) return 4;  // excellent — right next to it
@@ -739,16 +762,31 @@
                     // Update in-place — no animation re-trigger
                     existing.title = title;
                     existing.classList.toggle('no-input', !c.inputActive);
+                    const isChg = c.batteryStatus === 'Charging' || c.batteryStatus === 'Full';
+                    existing.classList.toggle('charging', isChg);
+                    const nameEl = existing.querySelector('.bt-name');
+                    if (nameEl) nameEl.textContent = isChg ? '⚡' : (c.displayName || c.name);
                     const barEls = existing.querySelectorAll('.bt-signal .bar');
                     barEls.forEach((bar, i) => {
                         const active = (i + 1) <= bars;
                         bar.classList.toggle('active', active);
                         bar.style.background = active ? info.color : '';
                     });
+                    // Update battery
+                    const battEl = existing.querySelector('.bt-batt-wrap');
+                    const battHtml = batteryIcon(c.battery, c.batteryStatus);
+                    if (battEl) { battEl.innerHTML = battHtml; }
+                    else if (battHtml) {
+                        const wrap = document.createElement('span');
+                        wrap.className = 'bt-batt-wrap';
+                        wrap.innerHTML = battHtml;
+                        existing.querySelector('.bt-signal')?.before(wrap);
+                    }
                 } else {
                     // New controller — create with entrance animation
                     const div = document.createElement('div');
-                    div.className = 'bt-controller' + (c.inputActive ? '' : ' no-input');
+                    const isCharging = c.batteryStatus === 'Charging' || c.batteryStatus === 'Full';
+                    div.className = 'bt-controller' + (c.inputActive ? '' : ' no-input') + (isCharging ? ' charging' : '');
                     div.dataset.addr = c.address;
                     div.title = title;
                     const signalHtml = [1,2,3,4].map(i => {
@@ -756,8 +794,11 @@
                         return '<div class="bar' + (active ? ' active' : '') + '"'
                             + (active ? ' style="background:' + info.color + '"' : '') + '></div>';
                     }).join('');
+                    const battHtml = batteryIcon(c.battery, c.batteryStatus);
+                    const nameText = isCharging ? '⚡' : (c.displayName || c.name);
                     div.innerHTML = '<span class="bt-icon" style="color:' + info.color + '">' + info.svg + '</span>'
-                        + '<span class="bt-name">' + (c.displayName || c.name) + '</span>'
+                        + '<span class="bt-name">' + nameText + '</span>'
+                        + (battHtml ? '<span class="bt-batt-wrap">' + battHtml + '</span>' : '')
                         + '<div class="bt-signal">' + signalHtml + '</div>';
                     container.appendChild(div);
                 }
