@@ -970,11 +970,18 @@
             setTimeout(() => {
                 // Clean up emulator if it exists
                 try {
-                    if (window.window.EJS_emulator) {
+                    if (window.EJS_emulator) {
                         window.EJS_emulator.pause?.();
+                        // Close audio context
                         const ctx = window.EJS_emulator.Module?.AL?.currentCtx?.audioCtx;
                         if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
-                        window.window.EJS_emulator = null;
+                        // Lose WebGL contexts to free GPU memory
+                        const canvases = document.querySelectorAll('#game canvas');
+                        canvases.forEach(c => {
+                            const gl = c.getContext('webgl2') || c.getContext('webgl');
+                            if (gl?.getExtension) gl.getExtension('WEBGL_lose_context')?.loseContext();
+                        });
+                        window.EJS_emulator = null;
                     }
                 } catch (e) { console.warn('Emulator cleanup error:', e); }
 
@@ -1077,7 +1084,9 @@
             window.EJS_startOnLoaded = true;
             window.EJS_volume = 1;
             window.EJS_DEBUG_XX = true;
-            window.EJS_threads = pendingROM?.threads || false;
+            // Auto-enable threads for CPU-heavy cores (N64 cached interpreter)
+            const autoThreadCores = ['n64', 'mupen64plus_next'];
+            window.EJS_threads = pendingROM?.threads || autoThreadCores.includes(pendingROM?.core) || false;
             window.EJS_EXPERIMENTAL_NETPLAY = true;
             // Default gamepad mappings for all 4 players
             const gamepadControls = {
@@ -1109,6 +1118,34 @@
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "hide" };
+
+            // N64 performance optimizations (mupen64plus_next)
+            if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
+                window.EJS_defaultOptions = {
+                    ...window.EJS_defaultOptions,
+                    // CPU
+                    "mupen64plus-cpucore": "cached_interpreter",
+                    "mupen64plus-CountPerOp": "0",
+                    // GPU — GLideN64 + HLE RSP
+                    "mupen64plus-RSP": "hle",
+                    "mupen64plus-rdp-plugin": "gliden64",
+                    // Resolution — 2x native + FXAA
+                    "mupen64plus-EnableNativeResFactor": "2",
+                    "mupen64plus-FXAA": "1",
+                    // Framebuffer — minimize copies
+                    "mupen64plus-EnableFBEmulation": "True",
+                    "mupen64plus-EnableCopyColorToRDRAM": "Off",
+                    "mupen64plus-EnableCopyDepthToRDRAM": "Off",
+                    // Visuals
+                    "mupen64plus-EnableLODEmulation": "True",
+                    "mupen64plus-EnableHWLighting": "True",
+                    "mupen64plus-EnableShadersStorage": "True",
+                    "mupen64plus-BilinearMode": "standard",
+                    "mupen64plus-MultiSampling": "0",
+                    // Aspect ratio
+                    "mupen64plus-aspect": "4:3",
+                };
+            }
 
             // // Enable multitap for multiplayer games
             // if (pendingROM?.core === 'psx') {

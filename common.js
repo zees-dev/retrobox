@@ -38,15 +38,14 @@ export const RESOLUTION_OPTIONS = {
         default: '2x'
     },
     n64: {
-        key: 'mupen64plus-43screensize',
+        key: 'mupen64plus-EnableNativeResFactor',
         options: [
-            { label: '240p (Native)', value: '320x240' },
-            { label: '480p', value: '640x480' },
-            { label: '720p', value: '960x720' },
-            { label: '960p', value: '1280x960' },
-            { label: '1440p', value: '1920x1440' },
+            { label: '1x (Native)', value: '1' },
+            { label: '2x', value: '2' },
+            { label: '3x', value: '3' },
+            { label: '4x', value: '4' },
         ],
-        default: '320x240'
+        default: '2'
     },
 };
 // Core aliases

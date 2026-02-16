@@ -204,11 +204,12 @@ function getBtControllers(): BtController[] {
       let batteryStatus: string | null = null;
       try {
         const addrLower = address.toLowerCase();
-        const entries = execSync("ls /sys/class/power_supply/ 2>/dev/null", { timeout: 500, encoding: "utf-8" }).trim().split("\n");
-        const match = entries.find(e => e.toLowerCase().includes(addrLower));
-        if (match) {
-          battery = parseInt(readFileSync(`/sys/class/power_supply/${match}/capacity`, "utf-8").trim());
-          batteryStatus = readFileSync(`/sys/class/power_supply/${match}/status`, "utf-8").trim();
+        const { readdirSync } = require("fs");
+        const entries: string[] = readdirSync("/sys/class/power_supply");
+        const psMatch = entries.find((e: string) => e.toLowerCase().includes(addrLower));
+        if (psMatch) {
+          battery = parseInt(readFileSync(`/sys/class/power_supply/${psMatch}/capacity`, "utf-8").trim());
+          batteryStatus = readFileSync(`/sys/class/power_supply/${psMatch}/status`, "utf-8").trim();
         }
       } catch {}
 
@@ -571,7 +572,13 @@ if (TLS_CERT && TLS_KEY) {
 }
 
 // Start BT controller polling (broadcasts changes to all screens via WebSocket)
-setInterval(pollBtState, 2000);
+// Slow down during gameplay to reduce CPU overhead
+let btPollInterval: ReturnType<typeof setInterval>;
+function startBtPolling(intervalMs = 2000) {
+  if (btPollInterval) clearInterval(btPollInterval);
+  btPollInterval = setInterval(pollBtState, intervalMs);
+}
+startBtPolling(5000);
 setTimeout(pollBtState, 500);
 
 console.log(`
