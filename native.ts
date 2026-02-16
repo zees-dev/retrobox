@@ -9,8 +9,8 @@
  */
 
 import { execSync, spawn, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "fs";
+import { join, extname } from "path";
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,17 @@ const STATES_DIR = join(KIOSK_HOME, ".config/retroarch/states");
 
 const NATIVE_FLAG = "/tmp/retroarch-native";
 const KIOSK_OVERRIDE_DIR = "/run/systemd/system/kiosk.service.d";
+const EXTRACT_DIR = join(KIOSK_HOME, ".cache/retroarch-extract");
+
+// ── Systems that need uncompressed content ──────────────────────────────────
+
+/** These cores can't load from zip — need extraction first */
+const NEEDS_EXTRACTION = new Set(["psx"]);
+
+/** Preferred content file extensions per system (in priority order) */
+const CONTENT_EXTENSIONS: Record<string, string[]> = {
+  psx: [".cue", ".bin", ".img", ".iso", ".pbp", ".chd"],
+};
 
 // ── Core map ────────────────────────────────────────────────────────────────
 
@@ -101,6 +112,16 @@ export function probeNativeSupport(): NativeProbe {
 
 /** Default core options per system (merged with any user overrides) */
 const DEFAULT_CORE_OPTIONS: Record<string, Record<string, string>> = {
+  psx: {
+    "pcsx_rearmed_neon_interlace_enable": "disabled",
+    "pcsx_rearmed_neon_enhancement_enable": "enabled",
+    "pcsx_rearmed_neon_enhancement_no_main": "enabled",
+    "pcsx_rearmed_frameskip_type": "disabled",
+    "pcsx_rearmed_gpu_thread_rendering": "async",
+    "pcsx_rearmed_drc": "enabled",
+    "pcsx_rearmed_psxclock": "57",
+    "pcsx_rearmed_input_sensitivity": "1.00",
+  },
   n64: {
     "mupen64plus-cpucore": "cached_interpreter",
     "mupen64plus-rdp-plugin": "gliden64",
@@ -231,6 +252,69 @@ function ensureRomPermissions(): void {
   }
 }
 
+// ── ZIP extraction for cores that need uncompressed content ─────────────────
+
+let extractedDir: string | null = null;
+
+/**
+ * Extract a zip ROM to a temp directory and return the content file path.
+ * For PSX, finds the .cue file (or .bin/.iso fallback).
+ * Cleans up any previous extraction first.
+ */
+function extractRom(system: string, zipPath: string): string | null {
+  cleanupExtraction();
+
+  const dir = join(EXTRACT_DIR, `${system}-${Date.now()}`);
+  try {
+    execSync(`sudo mkdir -p "${dir}"`, { timeout: 3000 });
+    execSync(`sudo unzip -o -q "${zipPath}" -d "${dir}"`, { timeout: 30000 });
+    execSync(`sudo chmod -R a+rX "${dir}"`, { timeout: 3000 });
+    extractedDir = dir;
+
+    // Find the best content file
+    const files = readdirSync(dir);
+    const exts = CONTENT_EXTENSIONS[system] || [];
+    for (const ext of exts) {
+      const match = files.find(f => f.toLowerCase().endsWith(ext));
+      if (match) {
+        console.log(`[native] Extracted: ${match}`);
+        return join(dir, match);
+      }
+    }
+    // Fallback: first file that isn't a directory
+    const fallback = files.find(f => {
+      try { return !require("fs").statSync(join(dir, f)).isDirectory(); } catch { return false; }
+    });
+    if (fallback) {
+      console.log(`[native] Extracted (fallback): ${fallback}`);
+      return join(dir, fallback);
+    }
+
+    console.error(`[native] No content file found in extracted archive`);
+    return null;
+  } catch (e: any) {
+    console.error(`[native] Extraction failed:`, e.message);
+    cleanupExtraction();
+    return null;
+  }
+}
+
+/** Clean up extracted files */
+function cleanupExtraction(): void {
+  if (extractedDir) {
+    try { execSync(`sudo rm -rf "${extractedDir}"`, { timeout: 5000 }); } catch {}
+    extractedDir = null;
+  }
+  // Also clean stale dirs
+  try {
+    if (existsSync(EXTRACT_DIR)) {
+      for (const d of readdirSync(EXTRACT_DIR)) {
+        try { execSync(`sudo rm -rf "${join(EXTRACT_DIR, d)}"`, { timeout: 5000 }); } catch {}
+      }
+    }
+  } catch {}
+}
+
 // ── Launch / Quit ───────────────────────────────────────────────────────────
 
 export interface LaunchOptions {
@@ -286,6 +370,20 @@ export async function launchNative(
 
   console.log(`[native] Launching: ${system} → ${romPath}`);
 
+  // Extract zip for cores that need uncompressed content
+  let actualRomPath = romPath;
+  if (NEEDS_EXTRACTION.has(system) && romPath.toLowerCase().endsWith(".zip")) {
+    console.log(`[native] ${system} requires extraction — unzipping...`);
+    const extracted = extractRom(system, romPath);
+    if (!extracted) {
+      state = "idle";
+      currentCore = null;
+      currentRom = null;
+      return { ok: false, error: "Failed to extract ROM archive" };
+    }
+    actualRomPath = extracted;
+  }
+
   // Write core options
   writeCoreOptions(system, options?.coreOptions);
 
@@ -326,7 +424,7 @@ export async function launchNative(
       "--config", RETROARCH_CFG,
       "--appendconfig", "/dev/null", // prevent NixOS wrapper injection
       "-L", corePath,
-      romPath,
+      actualRomPath,
     ];
 
     console.log(`[native] exec: ${CAGE_BIN} ${retroarchArgs.join(" ")}`);
@@ -368,6 +466,9 @@ export async function launchNative(
       currentCore = null;
       currentRom = null;
 
+      // Clean up extracted ROM files
+      cleanupExtraction();
+
       // Restart kiosk
       restartKiosk();
 
@@ -384,6 +485,7 @@ export async function launchNative(
       cageProcess = null;
       currentCore = null;
       currentRom = null;
+      cleanupExtraction();
       restartKiosk();
     });
 
@@ -393,6 +495,7 @@ export async function launchNative(
     state = "idle";
     currentCore = null;
     currentRom = null;
+    cleanupExtraction();
     restartKiosk();
     return { ok: false, error: e.message };
   }
