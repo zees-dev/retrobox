@@ -40,6 +40,7 @@
                 this.coreSelect = this.shadowRoot.getElementById('coreSelect');
                 this.playerCountSelect = this.shadowRoot.getElementById('playerCountSelect');
                 this.gameSelect = this.shadowRoot.getElementById('gameSelect');
+                this.coreVariantSelect = this.shadowRoot.getElementById('coreVariantSelect');
                 this.romUrlInput = this.shadowRoot.getElementById('romUrlInput');
                 this.biosUrlInput = this.shadowRoot.getElementById('biosUrlInput');
                 this.consoleSelect = this.shadowRoot.getElementById('consoleSelect');
@@ -149,6 +150,7 @@
                             background-position: right 10px center;
                             background-size: 20px; padding-right: 40px;
                         }
+                        select.hidden { display: none; }
                         select:disabled { background: rgba(128, 128, 128, 0.1); border-color: rgba(128, 128, 128, 0.2); color: #666; cursor: not-allowed; }
                         select:not(:disabled):hover { border-color: #1AAFFF; background-color: rgba(255, 255, 255, 0.15); }
                         select option { background: #333; color: #fff; font-size: 16px; }
@@ -594,6 +596,7 @@
                                     <select id="coreSelect"><option value="">Console</option></select>
                                     <select id="playerCountSelect" disabled><option value="">Players</option></select>
                                 </div>
+                                <select id="coreVariantSelect" class="full-width hidden"><option value="">Default Core</option></select>
                                 <select id="gameSelect" class="full-width" disabled><option value="">Select Game</option></select>
                             </div>
                             <div id="manualConfigSection" class="manual-config hidden">
@@ -724,6 +727,31 @@
                     nds: 'Nintendo DS',
                 };
 
+                // Alternative EmulatorJS cores per system (shown as dropdown when system has multiple)
+                this.coreVariants = {
+                    n64: [
+                        { value: 'n64', label: 'Mupen64Plus (HW)' },
+                        { value: 'parallel_n64', label: 'ParaLLEl N64 (SW)' },
+                    ],
+                    nes: [
+                        { value: 'nes', label: 'FCEUmm' },
+                        { value: 'nestopia', label: 'Nestopia' },
+                    ],
+                    psx: [
+                        { value: 'psx', label: 'PCSX ReARMed' },
+                        { value: 'mednafen_psx_hw', label: 'Mednafen PSX HW' },
+                    ],
+                    segaMD: [
+                        { value: 'segaMD', label: 'Genesis Plus GX' },
+                        { value: 'picodrive', label: 'PicoDrive' },
+                    ],
+                    arcade: [
+                        { value: 'arcade', label: 'FBNeo' },
+                        { value: 'mame2003_plus', label: 'MAME 2003+' },
+                        { value: 'mame2003', label: 'MAME 2003' },
+                    ],
+                };
+
                 // All core values for manual console selection
                 this.coreValues = {
                     "Nintendo 64": "n64", "Nintendo Game Boy": "gb", "Nintendo Game Boy Advance": "gba",
@@ -752,6 +780,7 @@
                     // Default to Nintendo 64 if available, otherwise first core
                     const defaultCore = this.gamePresets['n64'] ? 'n64' : Object.keys(this.gamePresets)[0];
                     this.coreSelect.value = defaultCore;
+                    this.updateCoreVariantOptions();
                     this.updatePlayerCountOptions();
                     // Don't auto-select player count - show all games grouped
                     this.updateGameOptions();
@@ -819,6 +848,34 @@
                     opt.textContent = name;
                     this.consoleSelect.appendChild(opt);
                 }
+            }
+
+            updateCoreVariantOptions() {
+                const system = this.coreSelect.value;
+                const variants = this.coreVariants[system];
+                if (variants && variants.length > 1) {
+                    this.coreVariantSelect.innerHTML = '';
+                    const saved = localStorage.getItem(`retrobox_coreVariant_${system}`);
+                    for (const v of variants) {
+                        const opt = document.createElement('option');
+                        opt.value = v.value;
+                        opt.textContent = v.label;
+                        if (saved === v.value) opt.selected = true;
+                        this.coreVariantSelect.appendChild(opt);
+                    }
+                    this.coreVariantSelect.classList.remove('hidden');
+                } else {
+                    this.coreVariantSelect.classList.add('hidden');
+                }
+            }
+
+            getSelectedCore() {
+                const system = this.coreSelect.value;
+                const variants = this.coreVariants[system];
+                if (variants && variants.length > 1) {
+                    return this.coreVariantSelect.value || system;
+                }
+                return system;
             }
 
             updatePlayerCountOptions() {
@@ -895,6 +952,7 @@
                         const { rom, core, playerCount } = JSON.parse(this.allGamesSelect.value);
                         // Update filtered dropdowns to match
                         this.coreSelect.value = core;
+                        this.updateCoreVariantOptions();
                         this.updatePlayerCountOptions();
                         this.playerCountSelect.value = playerCount;
                         this.updateGameOptions();
@@ -908,11 +966,20 @@
 
                 this.coreSelect.onchange = () => {
                     this.allGamesSelect.value = '';
+                    this.updateCoreVariantOptions();
                     this.updatePlayerCountOptions();
                     this.clearManualInputs();
                     this.updateResolutionOptions();
                     this.updateModeSelector();
                     this.updateStartButtonState();
+                };
+
+                this.coreVariantSelect.onchange = () => {
+                    const system = this.coreSelect.value;
+                    if (system) {
+                        localStorage.setItem(`retrobox_coreVariant_${system}`, this.coreVariantSelect.value);
+                    }
+                    this.updateModeSelector();
                 };
 
                 this.playerCountSelect.onchange = () => {
@@ -1221,7 +1288,8 @@
 
             updateModeSelector() {
                 if (!this._nativeSupported) return;
-                const core = this.consoleSelect.value;
+                // Use preset system dropdown (coreSelect) as primary, fall back to manual consoleSelect
+                const core = this.coreSelect.value || this.consoleSelect.value;
                 const nativeAvailable = !!(core && this._nativeCores[core]);
 
                 this.modeNativeBtn.disabled = !nativeAvailable;
@@ -1436,7 +1504,7 @@
                 this._currentRomSource = game.rom;
                 this._currentParentRomSource = game.parentRom || null;
                 this._currentBiosSource = game.bios || null;
-                this.consoleSelect.value = core;
+                this.consoleSelect.value = this.getSelectedCore();
                 this.updateResolutionOptions();
                 this.updateModeSelector();
                 this.updateStartButtonState();

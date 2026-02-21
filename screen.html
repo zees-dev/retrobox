@@ -940,7 +940,7 @@
         // ============================================
         // GAME LOADING
         // ============================================
-        function loadROM(gameData) {
+        async function loadROM(gameData) {
             // Native mode: call API directly (kiosk will die after this)
             if (gameData.playMode === 'native') {
                 gameMenu?.setLoadingText('Launching native mode...');
@@ -1025,7 +1025,7 @@
 
                 // Clear global EmulatorJS config to prevent stale state
                 const ejsGlobals = ['EJS_player', 'EJS_gameUrl', 'EJS_gameName', 'EJS_core', 'EJS_biosUrl',
-                    'EJS_ready', 'EJS_onGameStart', 'EJS_onCommand', 'EJS_startOnLoaded'];
+                    'EJS_ready', 'EJS_onGameStart', 'EJS_onCommand', 'EJS_startOnLoaded', 'EJS_cheats'];
                 ejsGlobals.forEach(key => { try { delete window[key]; } catch {} });
 
                 const container = document.querySelector('.game-container');
@@ -1246,6 +1246,18 @@
             window.EJS_gameUrl = pendingROM.source;
             window.EJS_core = pendingROM.core;
             if (pendingROM.biosSource) window.EJS_biosUrl = pendingROM.biosSource;
+
+            // Load cheats if available
+            try {
+                const cheatRes = await fetch(`/api/cheats?game=${encodeURIComponent(pendingROM.name)}&system=${encodeURIComponent(pendingROM.core)}`);
+                if (cheatRes.ok) {
+                    const cheatData = await cheatRes.json();
+                    if (cheatData.cheats?.length) {
+                        window.EJS_cheats = cheatData.cheats;
+                        console.log(`[cheats] Loaded ${cheatData.cheats.length} cheats for ${pendingROM.name}`);
+                    }
+                }
+            } catch (e) { console.log('[cheats] Failed to load:', e.message); }
 
             window.EJS_Buttons = {
                 playPause: true, restart: true, mute: true, settings: true, fullscreen: true,

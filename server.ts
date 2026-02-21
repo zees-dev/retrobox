@@ -270,6 +270,47 @@ const serverConfig = {
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // Cheats API — parses RetroArch .cht files for EmulatorJS
+    if (pathname === "/api/cheats") {
+      const game = url.searchParams.get("game");
+      const system = url.searchParams.get("system");
+      if (!game || !system) {
+        return new Response(JSON.stringify({ cheats: [], error: "Missing game or system param" }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+      const cheatCoreMap: Record<string, string> = {
+        n64: "n64", parallel_n64: "n64", mupen64plus_next: "n64",
+        psx: "psx", mednafen_psx_hw: "psx", pcsx_rearmed: "psx",
+        snes: "snes", nes: "nes", gba: "gba",
+        segaMD: "segaMD", arcade: "arcade",
+      };
+      const cheatDir = cheatCoreMap[system];
+      if (!cheatDir) {
+        return new Response(JSON.stringify({ cheats: [] }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+      const cheatFile = join(ROOT_DIR, "cheats", cheatDir, `${game}.cht`);
+      try {
+        const content = await Bun.file(cheatFile).text();
+        const cheats: [string, string][] = [];
+        const lines = content.split("\n");
+        let desc = "", code = "";
+        for (const line of lines) {
+          const descMatch = line.match(/^cheat\d+_desc\s*=\s*"(.+)"/);
+          const codeMatch = line.match(/^cheat\d+_code\s*=\s*"(.+)"/);
+          if (descMatch) desc = descMatch[1];
+          if (codeMatch) {
+            code = codeMatch[1];
+            if (desc && code) {
+              cheats.push([desc, code]);
+              desc = ""; code = "";
+            }
+          }
+        }
+        return new Response(JSON.stringify({ cheats }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch {
+        return new Response(JSON.stringify({ cheats: [] }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
     // Bluetooth controllers — reads connected game controllers from system
     if (pathname === "/api/bt-controllers") {
       try {
