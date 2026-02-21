@@ -74,14 +74,15 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": "*",
 };
 
-// Cross-origin isolation (localhost only)
+// Cross-origin isolation headers — enables SharedArrayBuffer for WASM threads
+// Using "credentialless" instead of "require-corp" so cross-origin resources load without CORP headers
 const coiHeaders: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp",
+  "Cross-Origin-Embedder-Policy": "credentialless",
   "Cross-Origin-Resource-Policy": "cross-origin",
 };
 
-function getHeaders(_req: Request): Record<string, string> {
+function getHeaders(req: Request): Record<string, string> {
   return { ...corsHeaders, ...coiHeaders };
 }
 
@@ -106,7 +107,7 @@ async function serveFile(path: string, req: Request): Promise<Response | null> {
     const baseHeaders: Record<string, string> = {
       "Content-Type": getMimeType(path),
       ...(isHtml ? {} : { "ETag": etag }),
-      "Cache-Control": isHtml ? "no-store, no-cache, must-revalidate, max-age=0" : "public, max-age=31536000, immutable",
+      "Cache-Control": isHtml ? "no-store, no-cache, must-revalidate, max-age=0" : `public, max-age=3600`,
       ...(isHtml ? { "Pragma": "no-cache", "Expires": "0" } : {}),
       ...getHeaders(req),
     };

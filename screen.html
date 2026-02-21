@@ -425,6 +425,16 @@
                     }
                     break;
 
+                case 'toggleCheat':
+                    if (window.EJS_emulator && msg.index !== undefined) {
+                        try {
+                            window.EJS_emulator.cheats[msg.index].checked = msg.checked;
+                            window.EJS_emulator.cheatChanged(msg.checked, msg.code, msg.index);
+                            console.log(`[cheats] ${msg.checked ? 'ON' : 'OFF'}: index=${msg.index}`);
+                        } catch (e) { console.error('[cheats] Toggle error:', e); }
+                    }
+                    break;
+
                 case 'getSettings':
                     // Send current settings to requesting controller (server adds controllerId to msg)
                     if (window.EJS_emulator?.settings && msg.controllerId) {

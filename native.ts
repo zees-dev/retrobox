@@ -187,6 +187,63 @@ export function writeCoreOptions(system: string, overrides?: Record<string, stri
   }
 }
 
+/**
+ * Ensure retroarch.cfg has optimal input latency + controller settings.
+ * Reads → patches → writes back. Uses sudo (kiosk-owned file).
+ */
+function ensureRetroarchCfg(): void {
+  const OPTIMAL: Record<string, string> = {
+    // Input: late polling = reads joypad as late as possible before frame render
+    "input_poll_type_behavior": "2",
+    // GPU hard sync: CPU waits for GPU — reduces internal pipeline lag
+    "video_hard_sync": "true",
+    "video_hard_sync_frames": "1",
+    // Audio: lower buffer = less perceived lag (32ms safe, below may crackle)
+    "audio_latency": "32",
+    // Frame delay: hold CPU before rendering to absorb input at last moment
+    "video_frame_delay": "4",
+    "video_frame_delay_auto": "true",
+    // Controller quit combo: 4 = Start+Select (DS4-friendly)
+    "input_quit_gamepad_combo": "4",
+    // Menu toggle: 6 = Hold Start 2s
+    "input_menu_toggle_gamepad_combo": "6",
+    // Never save config on exit (preserves our settings)
+    "config_save_on_exit": "false",
+  };
+
+  try {
+    let content = "";
+    try {
+      content = execSync(`sudo cat "${RETROARCH_CFG}"`, { encoding: "utf-8", timeout: 3000 });
+    } catch { return; }
+
+    const lines = content.split("\n");
+    const found = new Set<string>();
+
+    const patched = lines.map((line) => {
+      const match = line.match(/^(\S+)\s*=\s*/);
+      if (match && match[1] in OPTIMAL) {
+        found.add(match[1]);
+        return `${match[1]} = "${OPTIMAL[match[1]]}"`;
+      }
+      return line;
+    });
+
+    // Append any missing keys
+    for (const [k, v] of Object.entries(OPTIMAL)) {
+      if (!found.has(k)) patched.push(`${k} = "${v}"`);
+    }
+
+    execSync(`sudo tee "${RETROARCH_CFG}" > /dev/null`, {
+      input: patched.join("\n"),
+      timeout: 3000,
+    });
+    console.log("[native] RetroArch cfg patched for low-latency input");
+  } catch (e: any) {
+    console.warn("[native] Failed to patch retroarch.cfg:", e.message);
+  }
+}
+
 // ── Kiosk lifecycle ─────────────────────────────────────────────────────────
 
 /**
@@ -384,8 +441,9 @@ export async function launchNative(
     actualRomPath = extracted;
   }
 
-  // Write core options
+  // Write core options + patch retroarch.cfg for optimal latency
   writeCoreOptions(system, options?.coreOptions);
+  ensureRetroarchCfg();
 
   // Ensure ROM readability
   ensureRomPermissions();

@@ -346,6 +346,105 @@
         .test-controller.expanded .test-controller-links { display: flex; }
         .test-controller-link { display: flex; align-items: center; justify-content: center; height: 36px; padding: 0 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #1AAFFF; text-decoration: none; font-size: 12px; white-space: nowrap; transition: all 0.3s; }
         .test-controller-link:hover { background: rgba(255, 255, 255, 0.15); border-color: #1AAFFF; }
+
+        /* Custom Cheats UI */
+        .cheats-nav-badge {
+            position: absolute; top: -4px; right: -4px;
+            min-width: 16px; height: 16px; padding: 0 3px;
+            background: #FFC107; color: #000; border-radius: 8px;
+            font-size: 9px; font-weight: bold;
+            display: none; align-items: center; justify-content: center;
+            pointer-events: none; line-height: 1; z-index: 1;
+        }
+        .cheats-nav-badge.visible { display: flex; }
+
+        .cheats-backdrop {
+            position: fixed; inset: 0; z-index: 9998;
+            background: rgba(0, 0, 0, 0.5);
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .cheats-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+        .cheats-panel {
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+            max-height: 70vh; background: #1a1a1a;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px 16px 0 0;
+            display: flex; flex-direction: column;
+            transform: translateY(100%); transition: transform 0.3s ease-out;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+        }
+        .cheats-panel.visible { transform: translateY(0); }
+
+        .cheats-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px 12px; flex-shrink: 0;
+        }
+        .cheats-title { color: #fff; font-size: 16px; font-weight: 600; }
+        .cheats-close {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1); border: none;
+            color: rgba(255, 255, 255, 0.6); font-size: 14px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .cheats-close:active { background: rgba(255, 255, 255, 0.2); }
+
+        .cheats-search {
+            padding: 0 20px 12px; flex-shrink: 0; display: none;
+        }
+        .cheats-search.visible { display: block; }
+        .cheats-search input {
+            width: 100%; height: 36px; padding: 0 12px;
+            background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px; color: #fff; font-size: 14px; outline: none;
+            box-sizing: border-box;
+        }
+        .cheats-search input::placeholder { color: rgba(255, 255, 255, 0.3); }
+        .cheats-search input:focus { border-color: rgba(255, 193, 7, 0.5); }
+
+        .cheats-list {
+            overflow-y: auto; padding: 0 0 max(20px, env(safe-area-inset-bottom));
+            -webkit-overflow-scrolling: touch; flex: 1;
+        }
+        .cheats-empty {
+            color: rgba(255, 255, 255, 0.3); font-size: 14px;
+            text-align: center; padding: 24px 20px;
+        }
+
+        .cheat-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 20px; cursor: pointer;
+            transition: background 0.15s; -webkit-tap-highlight-color: transparent;
+        }
+        .cheat-row:active { background: rgba(255, 255, 255, 0.05); }
+        .cheat-row.hidden { display: none; }
+        .cheat-row.active .cheat-desc { color: rgba(255, 255, 255, 0.95); }
+
+        .cheat-desc {
+            flex: 1; color: rgba(255, 255, 255, 0.65); font-size: 13px;
+            line-height: 1.4; word-break: break-word;
+        }
+
+        .cheat-switch {
+            position: relative; width: 40px; height: 22px; flex-shrink: 0;
+        }
+        .cheat-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .cheat-switch-track {
+            position: absolute; inset: 0; cursor: pointer;
+            background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 22px; transition: all 0.3s;
+        }
+        .cheat-switch-track::before {
+            position: absolute; content: ""; height: 16px; width: 16px;
+            left: 2px; bottom: 2px; background: rgba(255, 255, 255, 0.4);
+            border-radius: 50%; transition: all 0.3s;
+        }
+        .cheat-switch input:checked + .cheat-switch-track {
+            background: rgba(255, 193, 7, 0.3); border-color: rgba(255, 193, 7, 0.5);
+        }
+        .cheat-switch input:checked + .cheat-switch-track::before {
+            transform: translateX(18px); background: #FFC107;
+        }
     </style>
     <script src="deps/nosleep.min.js"></script>
     <script>
@@ -384,6 +483,17 @@
             <div class="native-state" id="nativeStateLabel"></div>
         </div>
     </div>
+    <div class="cheats-backdrop" id="cheatsBackdrop"></div>
+    <div class="cheats-panel" id="cheatsPanel">
+        <div class="cheats-header">
+            <span class="cheats-title" id="cheatsTitle">Cheats</span>
+            <button class="cheats-close" id="cheatsClose">✕</button>
+        </div>
+        <div class="cheats-search" id="cheatsSearch">
+            <input type="text" id="cheatsSearchInput" placeholder="Search cheats...">
+        </div>
+        <div class="cheats-list" id="cheatsList"></div>
+    </div>
     <game-menu id="gameMenu" mode="controller"></game-menu>
 
     <script type="module">
@@ -412,6 +522,11 @@
             gamepad: true, cheat: false, volume: true, diskButton: false,
             netplay: false, screenRecord: false, saveSavFiles: false, loadSavFiles: false,
             screenshot: false, cacheManager: false, exitEmulation: false,
+            cheatsToggle: {
+                displayName: "Cheats",
+                icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>',
+                callback: () => toggleCheatsPanel()
+            },
             toggleFPS: {
                 displayName: "FPS",
                 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 24" fill="currentColor"><text x="20" y="18" font-size="24" font-weight="bold" text-anchor="middle" font-family="Arial,sans-serif">FPS</text></svg>',
@@ -852,9 +967,11 @@
         // ============================================
         // STATE HANDLERS
         // ============================================
+        let currentGameName = null;
+
         function handleStateUpdate(data) {
             console.log('State update:', data);
-            if (data.state === 'game-ready') handleGameStarted(data.core);
+            if (data.state === 'game-ready') handleGameStarted(data.core, data.gameName);
             else if (data.state === 'game-selection') handleGameReset();
             else if (data.state === 'game-pending') {
                 gameMenu?.setLoadingText(`Loading ${data.gameName || 'game'}...`);
@@ -862,8 +979,10 @@
             }
         }
 
-        function handleGameStarted(core) {
-            console.log('Game started, core:', core);
+        async function handleGameStarted(core, gameName) {
+            console.log('Game started, core:', core, 'game:', gameName);
+            currentGameName = gameName || null;
+            if (gameName && core) await fetchAndShowCheats(gameName, core);
             gameMenu?.hide();
             document.getElementById('gameMenu')?.style.setProperty('display', 'none');
             document.getElementById('game').style.display = 'block';
@@ -907,12 +1026,159 @@
             if (window.window.EJS_emulator) try { window.window.EJS_emulator = null; } catch {}
             emulatorLoaded = false;
             currentCore = null;
+            currentGameName = null;
+            clearCheats();
             document.getElementById('game').innerHTML = '';
             document.getElementById('game').style.display = 'none';
             gameMenu?.show();
             document.getElementById('gameMenu')?.style.setProperty('display', '');
             document.getElementById('testController').classList.remove('hidden');
         }
+
+        // ============================================
+        // CHEATS (Custom UI — button in EmulatorJS nav)
+        // ============================================
+        let currentCheats = []; // Array of { desc, code, checked }
+        let cheatsPanelOpen = false;
+        let cheatsNavBtn = null; // Cached reference to the EJS nav button
+
+        async function fetchAndShowCheats(gameName, core) {
+            currentCheats = [];
+            try {
+                const res = await fetch(`/api/cheats?game=${encodeURIComponent(gameName)}&system=${encodeURIComponent(core)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.cheats?.length) {
+                    currentCheats = data.cheats.map(([desc, code]) => ({ desc, code, checked: false }));
+                    console.log(`[cheats] Loaded ${currentCheats.length} cheats for ${gameName}`);
+                }
+            } catch (e) {
+                console.log('[cheats] Failed to load:', e.message);
+            }
+        }
+
+        function clearCheats() {
+            currentCheats = [];
+            cheatsNavBtn = null;
+            closeCheatsPanel();
+        }
+
+        function toggleCheatsPanel() {
+            if (cheatsPanelOpen) {
+                closeCheatsPanel();
+            } else {
+                openCheatsPanel();
+            }
+        }
+
+        function openCheatsPanel() {
+            if (currentCheats.length === 0) {
+                window.EJS_emulator?.displayMessage?.('No cheats available');
+                return;
+            }
+            cheatsPanelOpen = true;
+            renderCheatsList();
+            document.getElementById('cheatsPanel').classList.add('visible');
+            document.getElementById('cheatsBackdrop').classList.add('visible');
+            const activeCount = currentCheats.filter(c => c.checked).length;
+            document.getElementById('cheatsTitle').textContent = activeCount > 0
+                ? `Cheats (${activeCount}/${currentCheats.length})`
+                : `Cheats (${currentCheats.length})`;
+            const searchContainer = document.getElementById('cheatsSearch');
+            if (currentCheats.length > 15) {
+                searchContainer.classList.add('visible');
+                document.getElementById('cheatsSearchInput').value = '';
+            } else {
+                searchContainer.classList.remove('visible');
+            }
+        }
+
+        function closeCheatsPanel() {
+            cheatsPanelOpen = false;
+            document.getElementById('cheatsPanel').classList.remove('visible');
+            document.getElementById('cheatsBackdrop').classList.remove('visible');
+        }
+
+        function renderCheatsList() {
+            const list = document.getElementById('cheatsList');
+            // Sort: active cheats first, preserve original order within groups
+            const sorted = currentCheats.map((c, i) => ({ ...c, idx: i }))
+                .sort((a, b) => (b.checked ? 1 : 0) - (a.checked ? 1 : 0));
+            let html = '';
+            for (const c of sorted) {
+                const desc = c.desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                html += `<div class="cheat-row${c.checked ? ' active' : ''}" data-index="${c.idx}">` +
+                    `<span class="cheat-desc">${desc}</span>` +
+                    `<label class="cheat-switch"><input type="checkbox"${c.checked ? ' checked' : ''}>` +
+                    `<span class="cheat-switch-track"></span></label></div>`;
+            }
+            list.innerHTML = html || '<div class="cheats-empty">No cheats available</div>';
+        }
+
+        function updateCheatsNavBadge() {
+            const activeCount = currentCheats.filter(c => c.checked).length;
+            // Find the button by our lightning bolt SVG path
+            if (!cheatsNavBtn) {
+                const paths = document.querySelectorAll('#game path[d="M7 2v11h3v9l7-12h-4l4-8z"]');
+                for (const p of paths) {
+                    cheatsNavBtn = p.closest('a') || p.closest('button') || p.closest('div');
+                    if (cheatsNavBtn) break;
+                }
+            }
+            if (!cheatsNavBtn) return;
+            let badge = cheatsNavBtn.querySelector('.cheats-nav-badge');
+            if (activeCount > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'cheats-nav-badge';
+                    cheatsNavBtn.style.position = 'relative';
+                    cheatsNavBtn.appendChild(badge);
+                }
+                badge.textContent = activeCount;
+                badge.classList.add('visible');
+            } else if (badge) {
+                badge.classList.remove('visible');
+            }
+        }
+
+        function handleCheatToggle(index) {
+            if (index < 0 || index >= currentCheats.length) return;
+            const cheat = currentCheats[index];
+            cheat.checked = !cheat.checked;
+            const row = document.querySelector(`#cheatsList .cheat-row[data-index="${index}"]`);
+            if (row) {
+                row.classList.toggle('active', cheat.checked);
+                const cb = row.querySelector('input[type="checkbox"]');
+                if (cb) cb.checked = cheat.checked;
+            }
+            sendToScreen({ type: 'toggleCheat', index, checked: cheat.checked, code: cheat.code });
+            console.log(`[cheats] ${cheat.checked ? 'ON' : 'OFF'}: ${cheat.desc}`);
+            // Update title + nav badge with active count
+            const activeCount = currentCheats.filter(c => c.checked).length;
+            document.getElementById('cheatsTitle').textContent = activeCount > 0
+                ? `Cheats (${activeCount}/${currentCheats.length})`
+                : `Cheats (${currentCheats.length})`;
+            updateCheatsNavBadge();
+        }
+
+        // Cheats event listeners
+        document.getElementById('cheatsClose').onclick = () => closeCheatsPanel();
+        document.getElementById('cheatsBackdrop').onclick = () => closeCheatsPanel();
+
+        document.getElementById('cheatsList').addEventListener('click', (e) => {
+            const row = e.target.closest('.cheat-row');
+            if (!row) return;
+            e.preventDefault();
+            handleCheatToggle(parseInt(row.dataset.index));
+        });
+
+        document.getElementById('cheatsSearchInput').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            document.querySelectorAll('#cheatsList .cheat-row').forEach(row => {
+                const desc = row.querySelector('.cheat-desc').textContent.toLowerCase();
+                row.classList.toggle('hidden', query && !desc.includes(query));
+            });
+        });
 
         // ============================================
         // EMULATORJS CALLBACKS
