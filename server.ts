@@ -180,62 +180,108 @@ function getControllerDisplayName(name: string, type: string): string {
   }
 }
 
-type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null; battery: number | null; batteryStatus: string | null };
+type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null; battery: number | null; batteryStatus: string | null; connectionType: string };
 let lastBtStateJson = '[]';
 
 function getBtControllers(): BtController[] {
+  const result: BtController[] = [];
+  const inputDevicesRaw = readFileSync("/proc/bus/input/devices", "utf-8");
+  const inputDevicesLower = inputDevicesRaw.toLowerCase();
+
+  // ── Bluetooth controllers ──
   try {
     const devicesRaw = execSync("bluetoothctl devices Connected 2>/dev/null", { timeout: 2000, encoding: "utf-8" }).trim();
-    if (!devicesRaw) return [];
+    if (devicesRaw) {
+      for (const line of devicesRaw.split("\n")) {
+        const match = line.match(/^Device\s+([0-9A-Fa-f:]+)\s+(.+)$/);
+        if (!match) continue;
+        const [, address, name] = match;
 
-    const inputDevices = readFileSync("/proc/bus/input/devices", "utf-8").toLowerCase();
-    const result: BtController[] = [];
+        let icon = "device";
+        try {
+          const info = execSync(`bluetoothctl info ${address} 2>/dev/null`, { timeout: 1500, encoding: "utf-8" });
+          const iconMatch = info.match(/Icon:\s*(\S+)/);
+          if (iconMatch) icon = iconMatch[1];
+        } catch {}
 
-    for (const line of devicesRaw.split("\n")) {
-      const match = line.match(/^Device\s+([0-9A-Fa-f:]+)\s+(.+)$/);
-      if (!match) continue;
-      const [, address, name] = match;
+        if (icon !== "input-gaming") continue;
 
-      let icon = "device";
-      try {
-        const info = execSync(`bluetoothctl info ${address} 2>/dev/null`, { timeout: 1500, encoding: "utf-8" });
-        const iconMatch = info.match(/Icon:\s*(\S+)/);
-        if (iconMatch) icon = iconMatch[1];
-      } catch {}
+        const inputActive = inputDevicesLower.includes(address.toLowerCase());
+        const type = detectControllerType(name);
+        const displayName = getControllerDisplayName(name, type);
 
-      if (icon !== "input-gaming") continue;
+        let rssi: number | null = null;
+        try {
+          const rssiOut = execSync(`hcitool rssi ${address} 2>/dev/null`, { timeout: 1000, encoding: "utf-8" }).trim();
+          const rssiMatch = rssiOut.match(/RSSI return value:\s*(-?\d+)/);
+          if (rssiMatch) rssi = Math.round(parseInt(rssiMatch[1]) / 3) * 3;
+        } catch {}
 
-      const inputActive = inputDevices.includes(address.toLowerCase());
+        let battery: number | null = null;
+        let batteryStatus: string | null = null;
+        try {
+          const addrLower = address.toLowerCase();
+          const { readdirSync } = require("fs");
+          const entries: string[] = readdirSync("/sys/class/power_supply");
+          const psMatch = entries.find((e: string) => e.toLowerCase().includes(addrLower));
+          if (psMatch) {
+            battery = parseInt(readFileSync(`/sys/class/power_supply/${psMatch}/capacity`, "utf-8").trim());
+            batteryStatus = readFileSync(`/sys/class/power_supply/${psMatch}/status`, "utf-8").trim();
+          }
+        } catch {}
+
+        result.push({ name, displayName, address, inputActive, type, rssi, battery, batteryStatus, connectionType: "bluetooth" });
+      }
+    }
+  } catch {}
+
+  // ── USB/dongle controllers ──
+  try {
+    const btAddresses = new Set(result.map(c => c.address.toLowerCase()));
+    const blocks = inputDevicesRaw.split("\n\n").filter(Boolean);
+
+    for (const block of blocks) {
+      const lines = block.split("\n");
+      const get = (p: string) => lines.find((l) => l.startsWith(p))?.slice(p.length).trim() || "";
+      const handlers = get("H: Handlers=");
+
+      // Must be a joystick (has jsN handler)
+      if (!handlers.match(/\bjs\d+\b/)) continue;
+
+      const iLine = get("I: ");
+      const bus = iLine.match(/Bus=(\w+)/)?.[1] || "";
+
+      // Skip BT devices (already handled above) — bus 0005 = Bluetooth
+      if (bus === "0005") continue;
+
+      const name = get("N: Name=").replace(/^"|"$/g, "");
+      const uniq = get("U: Uniq=");
+      const eventMatch = handlers.match(/\bevent(\d+)\b/);
+      const eventPath = eventMatch ? `/dev/input/event${eventMatch[1]}` : "";
+
+      // Use eventPath as address for USB devices (unique identifier)
+      const address = `usb:${eventPath}`;
+
       const type = detectControllerType(name);
       const displayName = getControllerDisplayName(name, type);
+      const connLabel = name.toLowerCase().includes("2.4g") || name.toLowerCase().includes("dongle")
+        ? "dongle" : "usb";
 
-      let rssi: number | null = null;
-      try {
-        const rssiOut = execSync(`hcitool rssi ${address} 2>/dev/null`, { timeout: 1000, encoding: "utf-8" }).trim();
-        const rssiMatch = rssiOut.match(/RSSI return value:\s*(-?\d+)/);
-        if (rssiMatch) rssi = Math.round(parseInt(rssiMatch[1]) / 3) * 3;
-      } catch {}
-
-      // Battery from /sys/class/power_supply (hid-sony, xpadneo, etc.)
-      let battery: number | null = null;
-      let batteryStatus: string | null = null;
-      try {
-        const addrLower = address.toLowerCase();
-        const { readdirSync } = require("fs");
-        const entries: string[] = readdirSync("/sys/class/power_supply");
-        const psMatch = entries.find((e: string) => e.toLowerCase().includes(addrLower));
-        if (psMatch) {
-          battery = parseInt(readFileSync(`/sys/class/power_supply/${psMatch}/capacity`, "utf-8").trim());
-          batteryStatus = readFileSync(`/sys/class/power_supply/${psMatch}/status`, "utf-8").trim();
-        }
-      } catch {}
-
-      result.push({ name, displayName, address, inputActive, type, rssi, battery, batteryStatus });
+      result.push({
+        name,
+        displayName,
+        address,
+        inputActive: true,
+        type,
+        rssi: null,
+        battery: null,
+        batteryStatus: null,
+        connectionType: connLabel,
+      });
     }
-    return result;
-  } catch {
-    return [];
-  }
+  } catch {}
+
+  return result;
 }
 
 function broadcastBtState(list: BtController[]) {

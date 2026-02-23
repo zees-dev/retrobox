@@ -799,17 +799,25 @@
                     div.className = 'bt-controller' + (c.inputActive ? '' : ' no-input') + (isCharging ? ' charging' : '');
                     div.dataset.addr = c.address;
                     div.title = title;
-                    const signalHtml = [1,2,3,4].map(i => {
-                        const active = i <= bars;
-                        return '<div class="bar' + (active ? ' active' : '') + '"'
-                            + (active ? ' style="background:' + info.color + '"' : '') + '></div>';
-                    }).join('');
+                    const isBt = !c.connectionType || c.connectionType === 'bluetooth';
+                    let connHtml = '';
+                    if (isBt) {
+                        connHtml = '<div class="bt-signal">' + [1,2,3,4].map(i => {
+                            const active = i <= bars;
+                            return '<div class="bar' + (active ? ' active' : '') + '"'
+                                + (active ? ' style="background:' + info.color + '"' : '') + '></div>';
+                        }).join('') + '</div>';
+                    } else {
+                        // USB/dongle: show plug icon instead of signal bars
+                        const connIcon = c.connectionType === 'dongle' ? '📡' : '🔌';
+                        connHtml = '<span style="font-size:max(8px,1vmin);opacity:0.5">' + connIcon + '</span>';
+                    }
                     const battHtml = batteryIcon(c.battery, c.batteryStatus);
                     const nameText = isCharging ? '⚡' : (c.displayName || c.name);
                     div.innerHTML = '<span class="bt-icon" style="color:' + info.color + '">' + info.svg + '</span>'
                         + '<span class="bt-name">' + nameText + '</span>'
                         + (battHtml ? '<span class="bt-batt-wrap">' + battHtml + '</span>' : '')
-                        + '<div class="bt-signal">' + signalHtml + '</div>';
+                        + connHtml;
                     container.appendChild(div);
                 }
             }
