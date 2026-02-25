@@ -1089,7 +1089,8 @@
                         ? this._currentRomSource.split('/').pop().split('?')[0]
                         : this._currentRomSource.name;
 
-                    const core = this.consoleSelect.value;
+                    // Use variant core (e.g. parallel_n64) if available, else base system core
+                    const core = this.getSelectedCore();
                     const resConfig = RESOLUTION_OPTIONS[core];
                     const resolutionValue = this._resolution[core] || resConfig?.default || null;
                     const webgl2Value = this._webgl2[core] !== undefined ? this._webgl2[core] : true;
@@ -1504,7 +1505,8 @@
                 this._currentRomSource = game.rom;
                 this._currentParentRomSource = game.parentRom || null;
                 this._currentBiosSource = game.bios || null;
-                this.consoleSelect.value = this.getSelectedCore();
+                // Set consoleSelect to base system core (not variant — variants aren't in this dropdown)
+                this.consoleSelect.value = this.coreSelect.value || this.getSelectedCore();
                 this.updateResolutionOptions();
                 this.updateModeSelector();
                 this.updateStartButtonState();
