@@ -368,7 +368,18 @@ const serverConfig = {
     }
 
     if (pathname === "/api/network-info") {
-      return new Response(JSON.stringify({ ip: LOCAL_IP, port: PORT, url: LOCAL_IP ? `http://${LOCAL_IP}:${PORT}` : null }),
+      // Include active connection info (WiFi SSID or Ethernet)
+      let connection = { type: "unknown", name: "" };
+      try {
+        const result = Bun.spawnSync({ cmd: ["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"] });
+        const lines = result.stdout.toString().trim().split("\n");
+        for (const line of lines) {
+          const [name, type, device] = line.split(":");
+          if (type === "802-11-wireless") { connection = { type: "wifi", name }; break; }
+          if (type === "802-3-ethernet" && connection.type !== "wifi") { connection = { type: "ethernet", name: device || name }; }
+        }
+      } catch {}
+      return new Response(JSON.stringify({ ip: LOCAL_IP, port: PORT, url: LOCAL_IP ? `http://${LOCAL_IP}:${PORT}` : null, connection }),
         { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
     }
 
