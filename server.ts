@@ -183,7 +183,10 @@ function getControllerDisplayName(name: string, type: string): string {
 type BtController = { name: string; displayName: string; address: string; inputActive: boolean; type: string; rssi: number | null; battery: number | null; batteryStatus: string | null; connectionType: string };
 let lastBtStateJson = '[]';
 
+const isLinux = process.platform === "linux";
+
 function getBtControllers(): BtController[] {
+  if (!isLinux) return [];
   const result: BtController[] = [];
   const inputDevicesRaw = readFileSync("/proc/bus/input/devices", "utf-8");
   const inputDevicesLower = inputDevicesRaw.toLowerCase();
@@ -773,8 +776,10 @@ function startBtPolling(intervalMs = 2000) {
   if (btPollInterval) clearInterval(btPollInterval);
   btPollInterval = setInterval(pollBtState, intervalMs);
 }
-startBtPolling(5000);
-setTimeout(pollBtState, 500);
+if (isLinux) {
+  startBtPolling(5000);
+  setTimeout(pollBtState, 500);
+}
 
 console.log(`
 RetroBox Server (WebSocket + WebRTC Signaling)
