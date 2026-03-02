@@ -1056,8 +1056,9 @@
                 ejsScripts.forEach(s => s.remove());
 
                 // Clear global EmulatorJS identifiers to allow re-declaration
-                const ejsIdentifiers = ['EJS_CommandHandler', 'HistoryManager', 'EmulatorJS', 'EJS_STORAGE',
-                    'GamepadHandler', 'EJS_GameManager', 'EJSCompression'];
+                const ejsIdentifiers = ['EJS_HistoryManager', 'EJS_OverlayElement', 'EJS_VirtualGamepadEditor',
+                    'EmulatorJS', 'EJS_STORAGE', 'EJS_DUMMYSTORAGE', 'EJS_UTILS', 'EJS_Download', 'EJS_Cache',
+                    'EJS_CacheItem', 'EJS_FileItem', 'GamepadHandler', 'EJS_GameManager', 'EJSCompression'];
                 ejsIdentifiers.forEach(key => { try { delete window[key]; } catch {} });
 
                 // Clear global EmulatorJS config to prevent stale state
@@ -1390,9 +1391,9 @@
                 loaderScript = null;
             }
 
+            ejsScriptsLoaded = true; // Set synchronously to prevent duplicate loads from race conditions
             loaderScript = document.createElement('script');
             loaderScript.src = 'EmulatorJS/data/loader.js';
-            loaderScript.onload = () => { ejsScriptsLoaded = true; };
             document.body.appendChild(loaderScript);
         }
 
