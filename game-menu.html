@@ -73,6 +73,13 @@
                 this.manualConfigSection = this.shadowRoot.getElementById('manualConfigSection');
                 this.presetSection = this.shadowRoot.getElementById('presetSection');
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
+                this.homeBtn = this.shadowRoot.getElementById('homeBtn');
+
+                // Home button — navigate to kiosk dashboard (use same host as current page)
+                this.homeBtn?.addEventListener('click', () => {
+                    const host = window.location.hostname || '127.0.0.1';
+                    window.location.href = 'http://' + host;
+                });
 
                 // Remove cursor after typewriter animation
                 this.menuTitle?.addEventListener('animationend', (e) => {
@@ -575,6 +582,29 @@
                         .mode-btn.active[data-mode="native"] { background: rgba(33, 150, 243, 0.25); }
                         .mode-btn:disabled { opacity: 0.25; cursor: not-allowed; }
                         .mode-btn + .mode-btn { border-left: 1px solid rgba(255, 255, 255, 0.08); }
+
+                        .home-btn {
+                            position: fixed;
+                            bottom: 16px;
+                            left: 16px;
+                            width: 40px;
+                            height: 40px;
+                            border-radius: 50%;
+                            border: 1px solid rgba(255, 255, 255, 0.15);
+                            background: rgba(0, 0, 0, 0.6);
+                            color: rgba(255, 255, 255, 0.5);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            cursor: pointer;
+                            pointer-events: auto;
+                            transition: all 0.2s;
+                            z-index: 1001;
+                            padding: 0;
+                        }
+                        .home-btn:hover { background: rgba(0, 0, 0, 0.8); color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.3); }
+                        .home-btn:active { transform: scale(0.9); }
+                        .home-btn svg { width: 20px; height: 20px; fill: currentColor; }
                     </style>
 
                     <div class="player-status" id="playerStatus">
@@ -583,6 +613,9 @@
                         <div class="player-indicator" data-player="2"><span class="pip"></span><span>P3</span></div>
                         <div class="player-indicator" data-player="3"><span class="pip"></span><span>P4</span></div>
                     </div>
+                    <button class="home-btn" id="homeBtn" title="Dashboard">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                    </button>
                     <div class="game-controls" id="gameControls">
                         <div class="menu-header">
                             <div class="title-wrapper">
