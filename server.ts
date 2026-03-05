@@ -5,7 +5,7 @@ import { reverse } from "dns/promises";
 import { readdir, access, stat, mkdir } from "fs/promises";
 import { parseArgs } from "util";
 import { execSync } from "child_process";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync, statSync, existsSync, unlinkSync } from "fs";
 
 // ── Native RetroArch (optional) ─────────────────────────────────────────────
 let native: typeof import("./native") | null = null;
@@ -224,7 +224,7 @@ function getBtControllers(): BtController[] {
         let batteryStatus: string | null = null;
         try {
           const addrLower = address.toLowerCase();
-          const { readdirSync } = require("fs");
+          
           const entries: string[] = readdirSync("/sys/class/power_supply");
           const psMatch = entries.find((e: string) => e.toLowerCase().includes(addrLower));
           if (psMatch) {
@@ -564,6 +564,36 @@ const serverConfig = {
 
     // ── Save File API (server-side persistence) ────────────────────────────
     const savesDir = join(ROOT_DIR, "saves");
+
+    // List all save files
+    if (pathname === "/api/saves" && req.method === "GET") {
+      try {
+        const saves: { core: string; game: string; file: string; size: number; modified: string }[] = [];
+        if (existsSync(savesDir)) {
+          for (const core of readdirSync(savesDir)) {
+            const coreDir = join(savesDir, core);
+            const coreStat = statSync(coreDir);
+            if (!coreStat.isDirectory()) continue;
+            for (const file of readdirSync(coreDir)) {
+              const filePath = join(coreDir, file);
+              const fileStat = statSync(filePath);
+              if (fileStat.isDirectory()) continue;
+              saves.push({
+                core,
+                game: file.replace(/\.[^.]+$/, ''),
+                file,
+                size: fileStat.size,
+                modified: fileStat.mtime.toISOString(),
+              });
+            }
+          }
+        }
+        return new Response(JSON.stringify(saves), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
     const saveMatch = pathname.match(/^\/api\/saves\/([^/]+)\/(.+)$/);
     if (saveMatch) {
       const [, core, game] = saveMatch;
@@ -587,6 +617,18 @@ const serverConfig = {
           const data = await req.arrayBuffer();
           await Bun.write(savePath, data);
           return new Response(JSON.stringify({ ok: true, size: data.byteLength }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+      }
+
+      if (req.method === "DELETE") {
+        try {
+          if (!existsSync(savePath)) {
+            return new Response(JSON.stringify({ ok: false, error: "Not found" }), { status: 404, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+          }
+          unlinkSync(savePath);
+          return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
         } catch (e: any) {
           return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
         }

@@ -96,6 +96,12 @@
 
             connectedCallback() { this.init(); }
 
+            disconnectedCallback() {
+                if (this._popstateHandler) {
+                    window.removeEventListener('popstate', this._popstateHandler);
+                }
+            }
+
             static get observedAttributes() { return ['mode']; }
 
             attributeChangedCallback(name, oldValue, newValue) {
@@ -364,6 +370,155 @@
                         }
                         .settings-view.visible {
                             display: flex;
+                        }
+
+                        /* Settings tab bar */
+                        .settings-tabs {
+                            display: flex;
+                            gap: 0;
+                            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                            margin-bottom: 12px;
+                        }
+                        .settings-tab {
+                            flex: 1;
+                            padding: 8px 0;
+                            background: none;
+                            border: none;
+                            border-bottom: 2px solid transparent;
+                            color: rgba(255, 255, 255, 0.4);
+                            font-size: 13px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.15s;
+                            font-family: monospace;
+                        }
+                        .settings-tab:hover { color: rgba(255, 255, 255, 0.6); }
+                        .settings-tab.active {
+                            color: #4a9eff;
+                            border-bottom-color: #4a9eff;
+                        }
+                        .settings-pane { display: none; flex-direction: column; gap: 16px; }
+                        .settings-pane.active { display: flex; }
+
+                        /* Save files section */
+                        .saves-list {
+                            display: flex;
+                            flex-direction: column;
+                            gap: 2px;
+                        }
+                        .saves-empty {
+                            font-size: 12px;
+                            color: rgba(255, 255, 255, 0.3);
+                            padding: 8px 0;
+                        }
+                        .saves-core-group {
+                            margin-bottom: 6px;
+                        }
+                        .saves-core-label {
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: rgba(255, 255, 255, 0.4);
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                            padding: 4px 0 2px;
+                        }
+                        .save-item {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            padding: 6px 8px;
+                            background: rgba(255, 255, 255, 0.04);
+                            border-radius: 4px;
+                            font-size: 12px;
+                            color: rgba(255, 255, 255, 0.7);
+                        }
+                        .save-item:hover {
+                            background: rgba(255, 255, 255, 0.08);
+                        }
+                        .save-name {
+                            flex: 1;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .save-size {
+                            font-size: 11px;
+                            color: rgba(255, 255, 255, 0.3);
+                            white-space: nowrap;
+                        }
+                        .save-btn {
+                            background: none;
+                            border: none;
+                            cursor: pointer;
+                            padding: 4px 6px;
+                            font-size: 14px;
+                            line-height: 1;
+                            opacity: 0.4;
+                            transition: opacity 0.15s;
+                        }
+                        .save-btn:hover { opacity: 1; }
+                        .save-btn.download { color: #4a9eff; }
+                        .save-btn.delete { color: #ff4444; }
+
+                        /* Mobile: settings as full-screen modal */
+                        @media (max-width: 600px), (pointer: coarse) {
+                            /* Override parent container to fill screen when settings open */
+                            .game-controls.settings-open {
+                                position: fixed;
+                                top: 0; left: 0;
+                                transform: none;
+                                width: 100vw; max-width: 100vw;
+                                height: 100vh;
+                                border-radius: 0;
+                                border: none;
+                                padding: 0;
+                                display: block;
+                                background: #0f0f0f;
+                            }
+                            .game-controls.settings-open .menu-header,
+                            .game-controls.settings-open #gameSelectionView { display: none; }
+                            /* Hide overlaying elements when settings modal is open */
+                            :host(.settings-modal-open) .refresh-button,
+                            :host(.settings-modal-open) .player-status,
+                            :host(.settings-modal-open) .home-btn { display: none !important; }
+
+                            .game-controls.settings-open .settings-view.visible {
+                                display: flex;
+                                flex-direction: column;
+                                gap: 12px;
+                                padding: 60px 20px 20px;
+                                overflow-y: auto;
+                                -webkit-overflow-scrolling: touch;
+                                height: 100%;
+                                box-sizing: border-box;
+                            }
+                            .settings-view .settings-modal-header {
+                                display: none;
+                            }
+                            .game-controls.settings-open .settings-view .settings-modal-header {
+                                display: flex;
+                                position: fixed;
+                                top: 0; left: 0; right: 0;
+                                z-index: 10000;
+                                background: rgba(15, 15, 15, 0.98);
+                                padding: 14px 20px;
+                                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                                align-items: center;
+                                gap: 12px;
+                            }
+                            .settings-view .settings-modal-header .back-btn {
+                                background: none; border: none; color: #fff;
+                                padding: 4px; cursor: pointer; display: flex;
+                            }
+                            .settings-view .settings-modal-header .back-btn svg {
+                                width: 22px; height: 22px; fill: currentColor;
+                            }
+                            .settings-view .settings-modal-header .modal-title {
+                                font-size: 16px; font-weight: 600; color: #fff;
+                            }
+                        }
+                        @media (min-width: 601px) and (pointer: fine) {
+                            .settings-view .settings-modal-header { display: none; }
                         }
                         .game-selection-view.hidden {
                             display: none;
@@ -658,92 +813,112 @@
                         </div>
 
                         <div class="settings-view" id="settingsView">
-                            <div class="setting-row setting-persisted">
-                                <div class="setting-label">
-                                    <span>Game Height</span>
-                                    <span class="setting-value" id="gameHeightValue">100%</span>
-                                </div>
-                                <div class="slider-container">
-                                    <input type="range" id="gameHeightSlider" min="50" max="100" value="100" step="5">
-                                </div>
+                            <div class="settings-modal-header">
+                                <button class="back-btn" id="settingsBackBtn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                                </button>
+                                <span class="modal-title" id="settingsModalTitle">Settings</span>
                             </div>
 
-                            <div class="setting-row setting-persisted" id="resolutionRow">
-                                <div class="setting-label">
-                                    <span>Resolution<sup class="ejs-prefix">EJS</sup></span>
-                                </div>
-                                <select id="resolutionSelect" disabled>
-                                    <option value="">Select a game first</option>
-                                </select>
+                            <div class="settings-tabs">
+                                <button class="settings-tab active" data-pane="options">⚙️ Options</button>
+                                <button class="settings-tab" data-pane="saves">💾 Saves</button>
                             </div>
 
-                            <div class="setting-row setting-persisted" id="webgl2Row" style="display:none;">
-                                <div class="toggle-row">
-                                    <div class="toggle-info">
-                                        <span class="setting-label"><span>WebGL2<sup class="ejs-prefix">EJS</sup></span></span>
-                                        <span class="toggle-description">GPU-accelerated rendering (required for resolution scaling)</span>
+                            <div class="settings-pane active" id="paneOptions">
+                                <div class="setting-row setting-persisted">
+                                    <div class="setting-label">
+                                        <span>Game Height</span>
+                                        <span class="setting-value" id="gameHeightValue">100%</span>
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="webgl2Toggle" checked>
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div class="setting-row setting-persisted">
-                                <div class="toggle-row">
-                                    <div class="toggle-info">
-                                        <span class="setting-label"><span>Threads<sup class="ejs-prefix">EJS</sup></span></span>
-                                        <span class="toggle-description">Enable multi-threading (experimental)</span>
+                                    <div class="slider-container">
+                                        <input type="range" id="gameHeightSlider" min="50" max="100" value="100" step="5">
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="threadsToggle">
-                                        <span class="toggle-slider"></span>
-                                    </label>
                                 </div>
-                            </div>
 
-                            <div class="setting-row setting-persisted">
-                                <div class="toggle-row">
-                                    <div class="toggle-info">
-                                        <span class="setting-label">Debug Logs</span>
-                                        <span class="toggle-description">Buffer console logs for remote viewing</span>
+                                <div class="setting-row setting-persisted" id="resolutionRow">
+                                    <div class="setting-label">
+                                        <span>Resolution<sup class="ejs-prefix">EJS</sup></span>
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="debugModeToggle">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                    <select id="resolutionSelect" disabled>
+                                        <option value="">Select a system first</option>
+                                    </select>
                                 </div>
-                            </div>
 
-                            <div class="setting-row setting-persisted">
-                                <div class="toggle-row">
-                                    <div class="toggle-info">
-                                        <span class="setting-label">Load on start</span>
-                                        <span class="toggle-description">Auto-load previous save state on game start</span>
+                                <div class="setting-row setting-persisted" id="webgl2Row" style="display:none;">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label"><span>WebGL2<sup class="ejs-prefix">EJS</sup></span></span>
+                                            <span class="toggle-description">GPU-accelerated rendering (required for resolution scaling)</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="webgl2Toggle" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="loadOnStartToggle">
-                                        <span class="toggle-slider"></span>
-                                    </label>
                                 </div>
-                            </div>
 
-                            <div class="setting-row">
-                                <div class="toggle-row">
-                                    <div class="toggle-info">
-                                        <span class="setting-label">Use URL</span>
-                                        <span class="toggle-description">Load ROM from URL instead of presets</span>
+                                <div class="setting-row setting-persisted">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label"><span>Threads<sup class="ejs-prefix">EJS</sup></span></span>
+                                            <span class="toggle-description">Enable multi-threading (experimental)</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="threadsToggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
                                     </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="useUrlToggle">
-                                        <span class="toggle-slider"></span>
-                                    </label>
+                                </div>
+
+                                <div class="setting-row setting-persisted">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label">Debug Logs</span>
+                                            <span class="toggle-description">Buffer console logs for remote viewing</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="debugModeToggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="setting-row setting-persisted">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label">Load on start</span>
+                                            <span class="toggle-description">Auto-load previous save state on game start</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="loadOnStartToggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="setting-row">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label">Use URL</span>
+                                            <span class="toggle-description">Load ROM from URL instead of presets</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="useUrlToggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+                                    <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM to Library</button>
                                 </div>
                             </div>
 
-                            <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
-                                <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM to Library</button>
+                            <div class="settings-pane" id="paneSaves">
+                                <div class="saves-list" id="savesList">
+                                    <div class="saves-empty">Loading...</div>
+                                </div>
                             </div>
                         </div>
 
@@ -855,10 +1030,13 @@
                     // Default to Nintendo 64 if available, otherwise first core
                     const defaultCore = this.gamePresets['n64'] ? 'n64' : Object.keys(this.gamePresets)[0];
                     this.coreSelect.value = defaultCore;
+                    this.consoleSelect.value = defaultCore;
                     this.updateCoreVariantOptions();
                     this.updatePlayerCountOptions();
                     // Don't auto-select player count - show all games grouped
                     this.updateGameOptions();
+                    this.updateResolutionOptions();
+                    this.updateModeSelector();
                 }
             }
 
@@ -1041,6 +1219,7 @@
 
                 this.coreSelect.onchange = () => {
                     this.allGamesSelect.value = '';
+                    this.consoleSelect.value = this.coreSelect.value;
                     this.updateCoreVariantOptions();
                     this.updatePlayerCountOptions();
                     this.clearManualInputs();
@@ -1243,10 +1422,39 @@
 
                 // Debug/Settings button
                 this.debugButton.onclick = () => {
-                    this._showingSettings = !this._showingSettings;
-                    this.updateSettingsVisibility();
-                    if (this._showingSettings) this.updateResolutionOptions();
+                    if (this._showingSettings) {
+                        this._closeSettings();
+                    } else {
+                        this._openSettings();
+                    }
                 };
+
+                // Settings modal back button (mobile)
+                this.shadowRoot.getElementById('settingsBackBtn')?.addEventListener('click', () => {
+                    this._closeSettings();
+                });
+
+                // Settings tab switching
+                this.shadowRoot.querySelectorAll('.settings-tab').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const pane = tab.dataset.pane;
+                        this.shadowRoot.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
+                        this.shadowRoot.querySelectorAll('.settings-pane').forEach(p => p.classList.toggle('active', p.id === 'pane' + pane.charAt(0).toUpperCase() + pane.slice(1)));
+                        // Update mobile header title
+                        const titleEl = this.shadowRoot.getElementById('settingsModalTitle');
+                        if (titleEl) titleEl.textContent = pane === 'saves' ? 'Save Files' : 'Options';
+                        // Load saves when switching to saves tab
+                        if (pane === 'saves') this._loadSaves();
+                    });
+                });
+
+                // Android back button support via History API
+                this._popstateHandler = (e) => {
+                    if (this._showingSettings) {
+                        this._closeSettings(true);
+                    }
+                };
+                window.addEventListener('popstate', this._popstateHandler);
 
                 // ── Upload ROM Modal ──────────────────────────────────────
                 const uploadModal = this.shadowRoot.getElementById('uploadModal');
@@ -1577,6 +1785,98 @@
                 }
             }
 
+            _openSettings() {
+                this._showingSettings = true;
+                this.updateSettingsVisibility();
+                this.updateResolutionOptions();
+                // Reset to Options tab
+                this.shadowRoot.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === 'options'));
+                this.shadowRoot.querySelectorAll('.settings-pane').forEach(p => p.classList.toggle('active', p.id === 'paneOptions'));
+                const titleEl = this.shadowRoot.getElementById('settingsModalTitle');
+                if (titleEl) titleEl.textContent = 'Options';
+                // Push history state so Android back button can close settings
+                history.pushState({ settingsOpen: true }, '');
+            }
+
+            async _loadSaves() {
+                const list = this.shadowRoot.getElementById('savesList');
+                if (!list) return;
+                list.innerHTML = '<div class="saves-empty">Loading...</div>';
+                try {
+                    const resp = await fetch('/api/saves?t=' + Date.now());
+                    const saves = await resp.json();
+                    if (!saves.length) {
+                        list.innerHTML = '<div class="saves-empty">No save files yet</div>';
+                        return;
+                    }
+                    // Group by core
+                    const grouped = {};
+                    for (const s of saves) {
+                        (grouped[s.core] = grouped[s.core] || []).push(s);
+                    }
+                    let html = '';
+                    for (const [core, items] of Object.entries(grouped)) {
+                        html += '<div class="saves-core-group">';
+                        html += '<div class="saves-core-label">' + this._escHtml(core) + '</div>';
+                        for (const s of items) {
+                            const sizeStr = s.size >= 1024 ? Math.round(s.size / 1024) + ' KB' : s.size + ' B';
+                            const encodedCore = encodeURIComponent(s.core);
+                            const encodedGame = encodeURIComponent(s.game);
+                            html += '<div class="save-item">';
+                            html += '<span class="save-name">' + this._escHtml(s.game) + '</span>';
+                            html += '<span class="save-size">' + sizeStr + '</span>';
+                            html += '<button class="save-btn download" data-core="' + encodedCore + '" data-game="' + encodedGame + '" title="Download">📥</button>';
+                            html += '<button class="save-btn delete" data-core="' + encodedCore + '" data-game="' + encodedGame + '" data-name="' + this._escHtml(s.game) + '" title="Delete">✕</button>';
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    }
+                    list.innerHTML = html;
+                    // Attach handlers
+                    list.querySelectorAll('.save-btn.download').forEach(btn => {
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            const url = '/api/saves/' + btn.dataset.core + '/' + btn.dataset.game + '?t=' + Date.now();
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = decodeURIComponent(btn.dataset.game) + '.srm';
+                            a.click();
+                        };
+                    });
+                    list.querySelectorAll('.save-btn.delete').forEach(btn => {
+                        btn.onclick = async (e) => {
+                            e.stopPropagation();
+                            const name = btn.dataset.name;
+                            if (!confirm('Delete save file?\n\n' + name + '\n\nThis cannot be undone.')) return;
+                            try {
+                                const resp = await fetch('/api/saves/' + btn.dataset.core + '/' + btn.dataset.game, { method: 'DELETE' });
+                                if (resp.ok) {
+                                    this._loadSaves(); // Refresh list
+                                } else {
+                                    alert('Failed to delete save');
+                                }
+                            } catch { alert('Failed to delete save'); }
+                        };
+                    });
+                } catch (e) {
+                    list.innerHTML = '<div class="saves-empty">Failed to load saves</div>';
+                }
+            }
+
+            _escHtml(s) {
+                return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+
+            _closeSettings(fromPopstate = false) {
+                if (!this._showingSettings) return;
+                this._showingSettings = false;
+                this.updateSettingsVisibility();
+                // If not triggered by popstate, go back to remove the history entry we pushed
+                if (!fromPopstate && history.state?.settingsOpen) {
+                    history.back();
+                }
+            }
+
             updateSettingsVisibility() {
                 const gearIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>';
                 const backIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>';
@@ -1584,12 +1884,16 @@
                 if (this._showingSettings) {
                     this.gameSelectionView.classList.add('hidden');
                     this.settingsView.classList.add('visible');
+                    this.container.classList.add('settings-open');
+                    this.classList.add('settings-modal-open');
                     this.debugButton.classList.add('active');
                     this.debugButton.innerHTML = backIcon;
                     this.debugButton.title = 'Back';
                 } else {
                     this.gameSelectionView.classList.remove('hidden');
                     this.settingsView.classList.remove('visible');
+                    this.container.classList.remove('settings-open');
+                    this.classList.remove('settings-modal-open');
                     this.debugButton.classList.remove('active');
                     this.debugButton.innerHTML = gearIcon;
                     this.debugButton.title = 'Settings';
