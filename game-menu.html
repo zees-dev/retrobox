@@ -75,11 +75,16 @@
                 this.menuTitle = this.shadowRoot.querySelector('.menu-title');
                 this.homeBtn = this.shadowRoot.getElementById('homeBtn');
 
-                // Home button — navigate to kiosk dashboard (use same host as current page)
-                this.homeBtn?.addEventListener('click', () => {
-                    const host = window.location.hostname || '127.0.0.1';
-                    window.location.href = 'http://' + host;
-                });
+                // Home button — only visible on local kiosk screen
+                const isLocalKiosk = ['localhost', '127.0.0.1'].includes(window.location.hostname) || window.location.protocol === 'file:';
+                if (isLocalKiosk) {
+                    this.homeBtn?.addEventListener('click', () => {
+                        const host = window.location.hostname || '127.0.0.1';
+                        window.location.href = 'http://' + host;
+                    });
+                } else {
+                    this.homeBtn?.remove();
+                }
 
                 // Remove cursor after typewriter animation
                 this.menuTitle?.addEventListener('animationend', (e) => {

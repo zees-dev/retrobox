@@ -562,6 +562,37 @@ const serverConfig = {
       }
     }
 
+    // ── Save File API (server-side persistence) ────────────────────────────
+    const savesDir = join(ROOT_DIR, "saves");
+    const saveMatch = pathname.match(/^\/api\/saves\/([^/]+)\/(.+)$/);
+    if (saveMatch) {
+      const [, core, game] = saveMatch;
+      const safeCore = core.replace(/[^a-zA-Z0-9_-]/g, '');
+      const safeGame = decodeURIComponent(game).replace(/[/\\]/g, '_');
+      const saveDir = join(savesDir, safeCore);
+      const savePath = join(saveDir, safeGame + '.srm');
+
+      if (req.method === "GET") {
+        try {
+          const data = await Bun.file(savePath).arrayBuffer();
+          return new Response(data, { headers: { "Content-Type": "application/octet-stream", ...getHeaders(req) } });
+        } catch {
+          return new Response('', { status: 404, headers: getHeaders(req) });
+        }
+      }
+
+      if (req.method === "PUT" || req.method === "POST") {
+        try {
+          await mkdir(saveDir, { recursive: true });
+          const data = await req.arrayBuffer();
+          await Bun.write(savePath, data);
+          return new Response(JSON.stringify({ ok: true, size: data.byteLength }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+      }
+    }
+
     // ── Native RetroArch API ──────────────────────────────────────────────
     if (pathname === "/api/native/status") {
       if (!native) return new Response(JSON.stringify({ state: "idle", supported: false, cores: {} }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });

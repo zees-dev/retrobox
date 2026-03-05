@@ -180,7 +180,7 @@
     </div>
     <div class="controllers" id="controllers"></div>
     <div class="bt-controllers" id="btControllers"></div>
-    <div class="status connecting" id="status">Connecting...</div>
+    <div class="status connecting hidden" id="status">Connecting...</div>
     <div id="pauseOverlay"></div>
     <game-menu id="gameMenu" mode="screen"></game-menu>
 
@@ -205,6 +205,9 @@
         let pendingROM = null;
         let isPaused = false;
         let gameMenu = null;
+
+        // Detect if this is the local kiosk screen vs a remote browser
+        const isKiosk = ['localhost', '127.0.0.1'].includes(window.location.hostname) || window.location.protocol === 'file:';
 
         let wsManager = null;
         let screenId = null;
@@ -310,7 +313,7 @@
             }
         }
 
-        function showStatus() { document.getElementById('status').classList.remove('hidden'); }
+        function showStatus() { if (isKiosk) document.getElementById('status').classList.remove('hidden'); }
         function hideStatus() { document.getElementById('status').classList.add('hidden'); }
 
         // ============================================
@@ -336,14 +339,17 @@
         // WEBSOCKET
         // ============================================
         function updateStatus(status, text) {
+            if (!isKiosk) return;
             const el = document.getElementById('status');
             el.className = 'status ' + status;
             el.textContent = text;
         }
 
         // Network status: poll connection info and display WiFi SSID / Ethernet / Disconnected
+        // Only on kiosk — remote screens don't need Pi's WiFi status
         let _networkPollInterval = null;
         function updateNetworkStatus() {
+            if (!isKiosk) return;
             fetch('/api/network-info').then(r => r.json()).then(info => {
                 const conn = info.connection;
                 if (conn?.type === 'wifi') updateStatus('connected', '📶 ' + conn.name);
@@ -351,13 +357,14 @@
                 else updateStatus('disconnected', '⚠ No Internet');
             }).catch(() => updateStatus('disconnected', '⚠ No Internet'));
         }
-        // Poll network status every 10s to catch changes
-        _networkPollInterval = setInterval(updateNetworkStatus, 10000);
-
-        // Click status label → open WiFi Manager
-        document.getElementById('status').addEventListener('click', () => {
-            window.location.href = 'http://' + window.location.hostname + ':3457';
-        });
+        if (isKiosk) {
+            _networkPollInterval = setInterval(updateNetworkStatus, 10000);
+            document.getElementById('status').addEventListener('click', () => {
+                window.location.href = 'http://' + window.location.hostname + ':3457';
+            });
+        } else {
+            document.getElementById('status').classList.add('hidden');
+        }
 
         function connectWebSocket() {
             updateStatus('connecting', 'Connecting...');
@@ -406,7 +413,7 @@
                     break;
 
                 case 'btControllersUpdate':
-                    renderBtControllers(msg.controllers || []);
+                    if (isKiosk) renderBtControllers(msg.controllers || []);
                     break;
 
                 case 'startGame':
@@ -959,7 +966,27 @@
             resizeTimeout = setTimeout(() => qrCodeGenerated && generateQRCode(true), 150);
         });
 
-        function showQRCode() { document.getElementById('qrContainer').classList.remove('hidden'); }
+        // Flush in-game saves on page unload (refresh/navigation)
+        window.addEventListener('beforeunload', () => {
+            try {
+                const gm = window.EJS_emulator?.gameManager;
+                if (!gm) return;
+                gm.saveSaveFiles?.();
+                // Upload save via sendBeacon (works in beforeunload unlike fetch)
+                const savePath = gm.getSaveFilePath?.();
+                if (savePath && gm.FS?.analyzePath?.(savePath)?.exists) {
+                    const data = gm.FS.readFile(savePath);
+                    if (data?.length) {
+                        const parts = savePath.split('/');
+                        const coreName = parts[parts.length - 2];
+                        const fileName = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+                        navigator.sendBeacon('/api/saves/' + encodeURIComponent(coreName) + '/' + encodeURIComponent(fileName), new Blob([data]));
+                    }
+                }
+            } catch {}
+        });
+
+        function showQRCode() { if (isKiosk) document.getElementById('qrContainer').classList.remove('hidden'); }
         function hideQRCode() { document.getElementById('qrContainer').classList.add('hidden'); }
 
         // Z-index management for QR and game menu overlap on mobile
@@ -1023,10 +1050,41 @@
             initializeEmulator();
         }
 
-        function resetToGameMenu() {
-            saveState(0);
+        async function uploadSaveToServer(gm) {
+            try {
+                const savePath = gm?.getSaveFilePath?.();
+                if (!savePath || !gm.FS?.analyzePath?.(savePath)?.exists) return;
+                const data = gm.FS.readFile(savePath);
+                if (!data || data.length === 0) return;
+                const parts = savePath.split('/');
+                const coreName = parts[parts.length - 2];
+                const fileName = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+                const resp = await fetch('/api/saves/' + encodeURIComponent(coreName) + '/' + encodeURIComponent(fileName), {
+                    method: 'PUT', body: data,
+                    headers: { 'Content-Type': 'application/octet-stream' }
+                });
+                if (resp.ok) console.log('[save] Uploaded to server:', data.length, 'bytes');
+                else console.warn('[save] Server upload failed:', resp.status);
+            } catch (e) { console.warn('[save] Upload error:', e); }
+        }
 
-            // Wait for save to complete before cleanup
+        async function resetToGameMenu() {
+            // Stop server save interval
+            if (window._serverSaveInterval) { clearInterval(window._serverSaveInterval); window._serverSaveInterval = null; }
+
+            // Flush in-game saves to server
+            try {
+                const gm = window.EJS_emulator?.gameManager;
+                if (gm) {
+                    gm.saveSaveFiles?.();
+                    await uploadSaveToServer(gm);
+                }
+            } catch (e) { console.warn('[save] flush error:', e); }
+
+            // Save emulator state
+            await saveState(0);
+
+            // syncfs complete — now safe to clean up
             setTimeout(() => {
                 // Clean up emulator if it exists
                 try {
@@ -1179,6 +1237,7 @@
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "hide" };
+            window.EJS_fixedSaveInterval = 15000; // Auto-save SRAM to IndexedDB every 15s
 
             // N64 performance optimizations (mupen64plus_next)
             if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
@@ -1339,6 +1398,45 @@
                         else showAudioIndicator();
                     }
                 }, 500);
+
+                // Periodic server save sync (every 30s)
+                if (window._serverSaveInterval) clearInterval(window._serverSaveInterval);
+                window._serverSaveInterval = setInterval(() => {
+                    const gm = window.EJS_emulator?.gameManager;
+                    if (gm && currentState === State.PLAYING) {
+                        gm.saveSaveFiles?.();
+                        uploadSaveToServer(gm);
+                    }
+                }, 30000);
+
+                // Load server-side save file into emulator
+                (async () => {
+                    try {
+                        const gm = window.EJS_emulator?.gameManager;
+                        if (!gm) return;
+                        const savePath = gm.getSaveFilePath?.();
+                        if (!savePath) return;
+                        // Extract core and game name from path: /data/saves/CoreName/GameName.srm
+                        const parts = savePath.split('/');
+                        const coreName = parts[parts.length - 2];
+                        const fileName = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+                        console.log('[save] Checking server for save:', coreName, fileName);
+                        const resp = await fetch('/api/saves/' + encodeURIComponent(coreName) + '/' + encodeURIComponent(fileName));
+                        if (resp.ok) {
+                            const data = new Uint8Array(await resp.arrayBuffer());
+                            console.log('[save] Loaded server save:', data.length, 'bytes');
+                            // Write to WASM FS and tell core to reload
+                            const dir = savePath.substring(0, savePath.lastIndexOf('/'));
+                            try { gm.FS.mkdirTree(dir); } catch {}
+                            gm.FS.writeFile(savePath, data);
+                            gm.loadSaveFiles?.();
+                            console.log('[save] Injected save into emulator');
+                        } else {
+                            console.log('[save] No server save found (new game)');
+                        }
+                    } catch (e) { console.warn('[save] Server load error:', e); }
+                })();
+
                 // Auto-load previous save state if "Load on start" setting is enabled
                 if (localStorage.getItem('retrobox_loadOnStart') === 'true') {
                     setTimeout(() => {

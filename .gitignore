@@ -6,3 +6,4 @@ test-results/
 retroarch.cfg
 retroarch-core-options.cfg
 test-ra.sh
+saves/
