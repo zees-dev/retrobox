@@ -1237,7 +1237,7 @@
             window.EJS_backgroundBlur = false;
             window.EJS_backgroundColor = '#1a1a1a';
             window.EJS_defaultOptions = { "save-state-location": "browser", "fps": "hide" };
-            window.EJS_fixedSaveInterval = 15000; // Auto-save SRAM to IndexedDB every 15s
+            window.EJS_fixedSaveInterval = 0; // Disable EmulatorJS auto-save (we handle it server-side)
 
             // N64 performance optimizations (mupen64plus_next)
             if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
@@ -1404,10 +1404,12 @@
                 window._serverSaveInterval = setInterval(() => {
                     const gm = window.EJS_emulator?.gameManager;
                     if (gm && currentState === State.PLAYING) {
-                        gm.saveSaveFiles?.();
-                        uploadSaveToServer(gm);
+                        // Use requestIdleCallback to avoid stuttering during gameplay
+                        const doSave = () => { gm.saveSaveFiles?.(); uploadSaveToServer(gm); };
+                        if (window.requestIdleCallback) requestIdleCallback(doSave, { timeout: 5000 });
+                        else setTimeout(doSave, 0);
                     }
-                }, 30000);
+                }, 60000);
 
                 // Load server-side save file into emulator
                 (async () => {
