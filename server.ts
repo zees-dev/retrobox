@@ -575,7 +575,7 @@ const serverConfig = {
       if (req.method === "GET") {
         try {
           const data = await Bun.file(savePath).arrayBuffer();
-          return new Response(data, { headers: { "Content-Type": "application/octet-stream", ...getHeaders(req) } });
+          return new Response(data, { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store", ...getHeaders(req) } });
         } catch {
           return new Response('', { status: 404, headers: getHeaders(req) });
         }

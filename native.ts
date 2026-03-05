@@ -34,11 +34,12 @@ const EXTRACT_DIR = join(KIOSK_HOME, ".cache/retroarch-extract");
 // ── Systems that need uncompressed content ──────────────────────────────────
 
 /** These cores can't load from zip — need extraction first */
-const NEEDS_EXTRACTION = new Set(["psx"]);
+const NEEDS_EXTRACTION = new Set(["psx", "n64"]);
 
 /** Preferred content file extensions per system (in priority order) */
 const CONTENT_EXTENSIONS: Record<string, string[]> = {
   psx: [".cue", ".bin", ".img", ".iso", ".pbp", ".chd"],
+  n64: [".z64", ".n64", ".v64"],
 };
 
 // ── Core map ────────────────────────────────────────────────────────────────
@@ -157,13 +158,13 @@ export function writeCoreOptions(system: string, overrides?: Record<string, stri
     const optFile = join(optDir, `${dirName}.opt`);
 
     // Ensure directory exists (needs sudo — owned by kiosk)
-    execSync(`sudo mkdir -p "${optDir}"`, { timeout: 3000 });
+    execSync(`/run/wrappers/bin/sudo mkdir -p "${optDir}"`, { timeout: 3000 });
 
     // Read existing options if file exists
     const existing: Record<string, string> = {};
     if (existsSync(optFile)) {
       try {
-        const content = execSync(`sudo cat "${optFile}"`, { encoding: "utf-8", timeout: 3000 });
+        const content = execSync(`/run/wrappers/bin/sudo cat "${optFile}"`, { encoding: "utf-8", timeout: 3000 });
         for (const line of content.split("\n")) {
           const match = line.match(/^(.+?)\s*=\s*"(.+)"$/);
           if (match) existing[match[1]] = match[2];
@@ -180,7 +181,7 @@ export function writeCoreOptions(system: string, overrides?: Record<string, stri
       .map(([k, v]) => `${k} = "${v}"`);
 
     const content = lines.join("\n") + "\n";
-    execSync(`sudo tee "${optFile}" > /dev/null`, { input: content, timeout: 3000 });
+    execSync(`/run/wrappers/bin/sudo tee "${optFile}" > /dev/null`, { input: content, timeout: 3000 });
     console.log(`[native] Wrote core options: ${optFile}`);
   } catch (e: any) {
     console.warn(`[native] Failed to write core options for ${system}:`, e.message);
@@ -209,12 +210,18 @@ function ensureRetroarchCfg(): void {
     "input_menu_toggle_gamepad_combo": "6",
     // Never save config on exit (preserves our settings)
     "config_save_on_exit": "false",
+    // Absolute save paths (~ resolves wrong for kiosk user)
+    "savefile_directory": "/var/cache/kiosk-home/.config/retroarch/saves",
+    "savestate_directory": "/var/cache/kiosk-home/.config/retroarch/states",
+    // Sort saves into core subdirs (matches EmulatorJS save structure)
+    "sort_savefiles_enable": "true",
+    "sort_savestates_enable": "true",
   };
 
   try {
     let content = "";
     try {
-      content = execSync(`sudo cat "${RETROARCH_CFG}"`, { encoding: "utf-8", timeout: 3000 });
+      content = execSync(`/run/wrappers/bin/sudo cat "${RETROARCH_CFG}"`, { encoding: "utf-8", timeout: 3000 });
     } catch { return; }
 
     const lines = content.split("\n");
@@ -234,7 +241,7 @@ function ensureRetroarchCfg(): void {
       if (!found.has(k)) patched.push(`${k} = "${v}"`);
     }
 
-    execSync(`sudo tee "${RETROARCH_CFG}" > /dev/null`, {
+    execSync(`/run/wrappers/bin/sudo tee "${RETROARCH_CFG}" > /dev/null`, {
       input: patched.join("\n"),
       timeout: 3000,
     });
@@ -257,7 +264,7 @@ function stopKiosk(): boolean {
     writeFileSync(NATIVE_FLAG, String(Date.now()));
 
     // Create runtime override to prevent kiosk restart
-    execSync(`sudo mkdir -p ${KIOSK_OVERRIDE_DIR}`, { timeout: 3000 });
+    execSync(`/run/wrappers/bin/sudo mkdir -p ${KIOSK_OVERRIDE_DIR}`, { timeout: 3000 });
     execSync(
       `sudo bash -c 'cat > ${KIOSK_OVERRIDE_DIR}/override.conf << EOF
 [Service]
@@ -266,8 +273,8 @@ ExecStart=/bin/true
 EOF'`,
       { timeout: 3000 }
     );
-    execSync(`sudo ${SYSTEMCTL} daemon-reload`, { timeout: 5000 });
-    execSync(`sudo ${SYSTEMCTL} stop kiosk.service`, { timeout: 10000 });
+    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} daemon-reload`, { timeout: 5000 });
+    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} stop kiosk.service`, { timeout: 10000 });
 
     console.log("[native] Kiosk stopped");
     return true;
@@ -286,11 +293,11 @@ function restartKiosk(): void {
     try { execSync(`rm -f ${NATIVE_FLAG}`, { timeout: 2000 }); } catch {}
 
     // Remove runtime override
-    try { execSync(`sudo rm -rf ${KIOSK_OVERRIDE_DIR}`, { timeout: 3000 }); } catch {}
+    try { execSync(`/run/wrappers/bin/sudo rm -rf ${KIOSK_OVERRIDE_DIR}`, { timeout: 3000 }); } catch {}
 
     // Reload and restart
-    execSync(`sudo ${SYSTEMCTL} daemon-reload`, { timeout: 5000 });
-    execSync(`sudo ${SYSTEMCTL} restart kiosk.service`, { timeout: 10000 });
+    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} daemon-reload`, { timeout: 5000 });
+    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} restart kiosk.service`, { timeout: 10000 });
     console.log("[native] Kiosk restarted");
   } catch (e: any) {
     console.error("[native] Failed to restart kiosk:", e.message);
@@ -323,9 +330,11 @@ function extractRom(system: string, zipPath: string): string | null {
 
   const dir = join(EXTRACT_DIR, `${system}-${Date.now()}`);
   try {
-    execSync(`sudo mkdir -p "${dir}"`, { timeout: 3000 });
-    execSync(`sudo unzip -o -q "${zipPath}" -d "${dir}"`, { timeout: 30000 });
-    execSync(`sudo chmod -R a+rX "${dir}"`, { timeout: 3000 });
+    execSync(`/run/wrappers/bin/sudo mkdir -p "${dir}"`, { timeout: 3000 });
+    execSync(`/run/wrappers/bin/sudo unzip -o -q "${zipPath}" -d "${dir}"`, { timeout: 30000 });
+    execSync(`/run/wrappers/bin/sudo chmod -R a+rX "${dir}"`, { timeout: 3000 });
+    // Ensure parent dirs are traversable by pi user
+    execSync(`/run/wrappers/bin/sudo chmod a+x "${EXTRACT_DIR}" "${KIOSK_HOME}/.cache"`, { timeout: 3000 });
     extractedDir = dir;
 
     // Find the best content file
@@ -359,14 +368,14 @@ function extractRom(system: string, zipPath: string): string | null {
 /** Clean up extracted files */
 function cleanupExtraction(): void {
   if (extractedDir) {
-    try { execSync(`sudo rm -rf "${extractedDir}"`, { timeout: 5000 }); } catch {}
+    try { execSync(`/run/wrappers/bin/sudo rm -rf "${extractedDir}"`, { timeout: 5000 }); } catch {}
     extractedDir = null;
   }
   // Also clean stale dirs
   try {
     if (existsSync(EXTRACT_DIR)) {
       for (const d of readdirSync(EXTRACT_DIR)) {
-        try { execSync(`sudo rm -rf "${join(EXTRACT_DIR, d)}"`, { timeout: 5000 }); } catch {}
+        try { execSync(`/run/wrappers/bin/sudo rm -rf "${join(EXTRACT_DIR, d)}"`, { timeout: 5000 }); } catch {}
       }
     }
   } catch {}
@@ -448,9 +457,24 @@ export async function launchNative(
   // Ensure ROM readability
   ensureRomPermissions();
 
-  // Ensure saves/states dirs exist (owned by kiosk)
+  // Ensure saves/states dirs exist
+  // Symlink native saves to web saves dir so both share the same .srm files
+  const SUDO = "/run/wrappers/bin/sudo";
+  const webSavesDir = join(import.meta.dir, "saves");
   try {
-    execSync(`sudo mkdir -p "${SAVES_DIR}" "${STATES_DIR}"`, { timeout: 3000 });
+    execSync(`${SUDO} mkdir -p "${webSavesDir}" "${STATES_DIR}"`, { timeout: 3000 });
+    execSync(`chmod a+rwX "${webSavesDir}"`, { timeout: 1000 });
+    // If saves dir is a real directory, merge contents then replace with symlink
+    const isSymlink = execSync(`test -L "${SAVES_DIR}" && echo 1 || echo 0`, { timeout: 1000 }).toString().trim() === "1";
+    if (!isSymlink) {
+      // Copy existing native saves to web dir (don't overwrite)
+      try { execSync(`${SUDO} cp -rn "${SAVES_DIR}/"* "${webSavesDir}/" 2>/dev/null; ${SUDO} chown -R pi:users "${webSavesDir}"`, { timeout: 5000 }); } catch {}
+      execSync(`${SUDO} rm -rf "${SAVES_DIR}"`, { timeout: 3000 });
+    }
+    const target = execSync(`readlink -f "${SAVES_DIR}" 2>/dev/null || echo ""`, { timeout: 1000 }).toString().trim();
+    if (target !== webSavesDir) {
+      execSync(`${SUDO} ln -sfn "${webSavesDir}" "${SAVES_DIR}"`, { timeout: 3000 });
+    }
   } catch {}
 
   // Stop kiosk
@@ -562,7 +586,7 @@ export async function launchNative(
 // ── Quit ────────────────────────────────────────────────────────────────────
 
 /**
- * Quit native RetroArch. Sends SIGTERM to Cage (which terminates RetroArch).
+ * Quit native RetroArch. Sends SIGINT to RetroArch (flushes saves) then SIGTERM to Cage.
  * The exit handler then restarts the kiosk.
  */
 export function quitNative(): { ok: boolean; error?: string } {
@@ -571,18 +595,24 @@ export function quitNative(): { ok: boolean; error?: string } {
   }
 
   state = "stopping";
-  console.log("[native] Sending SIGTERM to Cage");
+  console.log("[native] Sending SIGINT to RetroArch, then SIGTERM to Cage");
 
   try {
-    // Kill the process group (sudo spawned it)
+    // Send SIGINT to RetroArch first — it flushes SRAM saves on SIGINT
+    try {
+      execSync(`/run/wrappers/bin/sudo pkill -INT -f 'retroarch.*--config'`, { timeout: 3000 });
+    } catch {}
+    // Brief wait for save flush
+    execSync("sleep 1", { timeout: 3000 });
+    // Then kill Cage
     if (cageProcess.pid) {
-      execSync(`sudo kill ${cageProcess.pid}`, { timeout: 5000 });
+      execSync(`/run/wrappers/bin/sudo kill ${cageProcess.pid}`, { timeout: 5000 });
     }
     return { ok: true };
   } catch (e: any) {
     // Try harder — find cage process
     try {
-      execSync("sudo pkill -f 'cage.*retroarch'", { timeout: 3000 });
+      execSync("/run/wrappers/bin/sudo pkill -f 'cage.*retroarch'", { timeout: 3000 });
       return { ok: true };
     } catch {
       return { ok: false, error: e.message };

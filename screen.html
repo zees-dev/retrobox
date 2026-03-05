@@ -1421,7 +1421,7 @@
                         const coreName = parts[parts.length - 2];
                         const fileName = parts[parts.length - 1].replace(/\.[^.]+$/, '');
                         console.log('[save] Checking server for save:', coreName, fileName);
-                        const resp = await fetch('/api/saves/' + encodeURIComponent(coreName) + '/' + encodeURIComponent(fileName));
+                        const resp = await fetch('/api/saves/' + encodeURIComponent(coreName) + '/' + encodeURIComponent(fileName) + '?t=' + Date.now());
                         if (resp.ok) {
                             const data = new Uint8Array(await resp.arrayBuffer());
                             console.log('[save] Loaded server save:', data.length, 'bytes');
