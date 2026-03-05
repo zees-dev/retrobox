@@ -2,7 +2,7 @@ import { serve, file } from "bun";
 import { join, extname, basename } from "path";
 import { networkInterfaces } from "os";
 import { reverse } from "dns/promises";
-import { readdir, access } from "fs/promises";
+import { readdir, access, stat, mkdir } from "fs/promises";
 import { parseArgs } from "util";
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
@@ -509,6 +509,56 @@ const serverConfig = {
           status: 500,
           headers: { "Content-Type": "application/json", ...getHeaders(req) }
         });
+      }
+    }
+
+    // ── ROM Upload API ─────────────────────────────────────────────────────
+    if (pathname === "/api/upload-rom" && req.method === "POST") {
+      try {
+        const formData = await req.formData();
+        const file = formData.get("rom") as File | null;
+        const system = formData.get("system") as string | null;
+        const players = formData.get("players") as string | null;
+
+        if (!file || !system || !players) {
+          return new Response(JSON.stringify({ ok: false, error: "Missing rom, system, or players" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+
+        // Validate system exists
+        const presetsDir = join(ROOT_DIR, "presets");
+        const systemDir = join(presetsDir, system);
+        try { await stat(systemDir); } catch {
+          return new Response(JSON.stringify({ ok: false, error: `Unknown system: ${system}` }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+
+        // Validate players format
+        if (!/^\d+p$/.test(players)) {
+          return new Response(JSON.stringify({ ok: false, error: `Invalid players format: ${players}` }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+
+        // Create player directory if needed
+        const targetDir = join(systemDir, players);
+        await mkdir(targetDir, { recursive: true });
+
+        // Write file
+        const targetPath = join(targetDir, file.name);
+        const arrayBuffer = await file.arrayBuffer();
+        await Bun.write(targetPath, arrayBuffer);
+
+        return new Response(JSON.stringify({ ok: true, path: `presets/${system}/${players}/${file.name}`, size: file.size }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
+    if (pathname === "/api/systems" && req.method === "GET") {
+      const presetsDir = join(ROOT_DIR, "presets");
+      try {
+        const entries = await readdir(presetsDir, { withFileTypes: true });
+        const systems = entries.filter(e => e.isDirectory() && e.name !== "bios").map(e => e.name);
+        return new Response(JSON.stringify(systems), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch {
+        return new Response(JSON.stringify([]), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
       }
     }
 

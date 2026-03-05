@@ -736,6 +736,37 @@
                                     </label>
                                 </div>
                             </div>
+
+                            <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+                                <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM to Library</button>
+                            </div>
+                        </div>
+
+                        <!-- Upload ROM Modal -->
+                        <div id="uploadModal" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.85);z-index:100;padding:20px;overflow-y:auto;">
+                            <div style="max-width:320px;margin:0 auto;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                                    <h3 style="font-size:16px;font-weight:600;color:#fff;margin:0;">Upload ROM</h3>
+                                    <button id="uploadModalClose" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:4px 8px;">✕</button>
+                                </div>
+                                <div style="margin-bottom:12px;">
+                                    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">System</label>
+                                    <select id="uploadSystem" style="width:100%;padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:14px;"></select>
+                                </div>
+                                <div style="margin-bottom:12px;">
+                                    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">Players</label>
+                                    <div id="uploadPlayers" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+                                </div>
+                                <div style="margin-bottom:16px;">
+                                    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">ROM File</label>
+                                    <div id="uploadDropZone" style="border:2px dashed rgba(255,255,255,0.15);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:all 0.15s;">
+                                        <div id="uploadFileName" style="color:#888;font-size:13px;">Tap to select or drop file</div>
+                                    </div>
+                                    <input type="file" id="uploadFileInput" accept=".zip,.7z,.nes,.smc,.sfc,.gb,.gba,.gbc,.n64,.z64,.v64,.bin,.cue,.iso,.md,.gen,.smd,.nds" style="display:none;">
+                                </div>
+                                <button id="uploadSubmit" disabled style="width:100%;padding:12px;background:#1AAFFF;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;opacity:0.4;transition:all 0.15s;">Upload</button>
+                                <div id="uploadProgress" style="display:none;margin-top:12px;text-align:center;color:#888;font-size:12px;"></div>
+                            </div>
                         </div>
 
                         <div class="loading-overlay" id="loadingOverlay">
@@ -1210,6 +1241,100 @@
                     this._showingSettings = !this._showingSettings;
                     this.updateSettingsVisibility();
                     if (this._showingSettings) this.updateResolutionOptions();
+                };
+
+                // ── Upload ROM Modal ──────────────────────────────────────
+                const uploadModal = this.shadowRoot.getElementById('uploadModal');
+                const uploadSystem = this.shadowRoot.getElementById('uploadSystem');
+                const uploadPlayers = this.shadowRoot.getElementById('uploadPlayers');
+                const uploadFileInput = this.shadowRoot.getElementById('uploadFileInput');
+                const uploadDropZone = this.shadowRoot.getElementById('uploadDropZone');
+                const uploadFileName = this.shadowRoot.getElementById('uploadFileName');
+                const uploadSubmit = this.shadowRoot.getElementById('uploadSubmit');
+                const uploadProgress = this.shadowRoot.getElementById('uploadProgress');
+                let uploadSelectedFile = null;
+                let uploadSelectedPlayers = '1p';
+
+                // Open modal
+                this.shadowRoot.getElementById('uploadRomBtn').onclick = () => {
+                    uploadModal.style.display = 'block';
+                    uploadSelectedFile = null;
+                    uploadFileName.textContent = 'Tap to select or drop file';
+                    uploadSubmit.disabled = true;
+                    uploadSubmit.style.opacity = '0.4';
+                    uploadProgress.style.display = 'none';
+                    // Populate systems
+                    fetch('/api/systems').then(r => r.json()).then(systems => {
+                        uploadSystem.innerHTML = systems.map(s =>
+                            '<option value="' + s + '">' + (this.coreNames[s] || s) + '</option>'
+                        ).join('');
+                    });
+                    renderPlayerBtns();
+                };
+
+                // Close modal
+                this.shadowRoot.getElementById('uploadModalClose').onclick = () => {
+                    uploadModal.style.display = 'none';
+                };
+
+                // Player buttons
+                const renderPlayerBtns = () => {
+                    let html = '';
+                    for (let i = 1; i <= 4; i++) {
+                        const val = i + 'p';
+                        const active = uploadSelectedPlayers === val;
+                        html += '<button data-p="' + val + '" style="flex:1;padding:8px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s;' +
+                            (active ? 'background:#1AAFFF;color:#fff;border:1px solid #1AAFFF;' : 'background:rgba(255,255,255,0.08);color:#888;border:1px solid rgba(255,255,255,0.12);') +
+                            '">' + i + 'P</button>';
+                    }
+                    uploadPlayers.innerHTML = html;
+                    uploadPlayers.querySelectorAll('button').forEach(btn => {
+                        btn.onclick = () => { uploadSelectedPlayers = btn.dataset.p; renderPlayerBtns(); };
+                    });
+                };
+
+                // File selection
+                uploadDropZone.onclick = () => uploadFileInput.click();
+                uploadDropZone.ondragover = (e) => { e.preventDefault(); uploadDropZone.style.borderColor = '#1AAFFF'; };
+                uploadDropZone.ondragleave = () => { uploadDropZone.style.borderColor = 'rgba(255,255,255,0.15)'; };
+                uploadDropZone.ondrop = (e) => {
+                    e.preventDefault();
+                    uploadDropZone.style.borderColor = 'rgba(255,255,255,0.15)';
+                    if (e.dataTransfer.files.length) { uploadSelectedFile = e.dataTransfer.files[0]; uploadFileName.textContent = uploadSelectedFile.name; uploadSubmit.disabled = false; uploadSubmit.style.opacity = '1'; }
+                };
+                uploadFileInput.onchange = () => {
+                    if (uploadFileInput.files.length) { uploadSelectedFile = uploadFileInput.files[0]; uploadFileName.textContent = uploadSelectedFile.name; uploadSubmit.disabled = false; uploadSubmit.style.opacity = '1'; }
+                };
+
+                // Submit upload
+                uploadSubmit.onclick = async () => {
+                    if (!uploadSelectedFile) return;
+                    uploadSubmit.disabled = true;
+                    uploadSubmit.textContent = 'Uploading...';
+                    uploadProgress.style.display = 'block';
+                    uploadProgress.textContent = 'Uploading ' + uploadSelectedFile.name + '...';
+                    try {
+                        const form = new FormData();
+                        form.append('rom', uploadSelectedFile);
+                        form.append('system', uploadSystem.value);
+                        form.append('players', uploadSelectedPlayers);
+                        const resp = await fetch('/api/upload-rom', { method: 'POST', body: form });
+                        const data = await resp.json();
+                        if (data.ok) {
+                            uploadProgress.textContent = '✓ Uploaded to ' + data.path;
+                            uploadProgress.style.color = '#4CAF50';
+                            setTimeout(() => { uploadModal.style.display = 'none'; this.loadPresets(); }, 1500);
+                        } else {
+                            uploadProgress.textContent = '✕ ' + (data.error || 'Upload failed');
+                            uploadProgress.style.color = '#f44';
+                            uploadSubmit.disabled = false;
+                        }
+                    } catch (e) {
+                        uploadProgress.textContent = '✕ ' + e.message;
+                        uploadProgress.style.color = '#f44';
+                        uploadSubmit.disabled = false;
+                    }
+                    uploadSubmit.textContent = 'Upload';
                 };
 
                 // Game height slider
