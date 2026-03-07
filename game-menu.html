@@ -573,6 +573,8 @@
                             line-height: 1;
                         }
                         .perf-profile-delete:hover { color: #ff4444; }
+                        .perf-profile-card.built-in { border-color: rgba(234, 179, 8, 0.35); }
+                        .perf-profile-card.built-in:hover { border-color: rgba(234, 179, 8, 0.6); background: rgba(234, 179, 8, 0.06); }
                         .perf-profile-add {
                             display: flex;
                             align-items: center;
@@ -2165,20 +2167,17 @@
             }
 
             _loadPerfProfiles(system) {
+                let userProfiles = [];
                 try {
                     const saved = localStorage.getItem(this._getPerfProfilesKey(system));
-                    if (saved) {
-                        const profiles = JSON.parse(saved);
-                        // Ensure built-in profiles exist
-                        return this._ensureBuiltInProfiles(system, profiles);
-                    }
+                    if (saved) userProfiles = JSON.parse(saved);
                 } catch {}
-                return this._ensureBuiltInProfiles(system, []);
+                return [...this._getBuiltInProfiles(system), ...userProfiles];
             }
 
-            _ensureBuiltInProfiles(system, profiles) {
-                if (system !== 'n64') return profiles;
-                const builtIn = [
+            _getBuiltInProfiles(system) {
+                if (system !== 'n64') return [];
+                return [
                     { name: '⚡ Max Perf', builtIn: true, settings: {
                         'mupen64plus-cpucore': 'cached_interpreter',
                         'mupen64plus-CountPerOp': '2',
@@ -2202,16 +2201,11 @@
                         'mupen64plus-FrameDuping': 'True',
                     }}
                 ];
-                for (const bi of builtIn) {
-                    if (!profiles.some(p => p.name === bi.name)) {
-                        profiles.unshift(bi);
-                    }
-                }
-                return profiles;
             }
 
             _savePerfProfiles(system, profiles) {
-                localStorage.setItem(this._getPerfProfilesKey(system), JSON.stringify(profiles));
+                const userOnly = profiles.filter(p => !p.builtIn);
+                localStorage.setItem(this._getPerfProfilesKey(system), JSON.stringify(userOnly));
             }
 
             _renderPerfSettings() {
@@ -2350,9 +2344,9 @@
 
                 let html = '';
                 profiles.forEach((p, i) => {
-                    html += '<div class="perf-profile-card" data-profile-idx="' + i + '">';
+                    html += '<div class="perf-profile-card' + (p.builtIn ? ' built-in' : '') + '" data-profile-idx="' + i + '">';
                     html += '<span class="perf-profile-name">' + this._escHtml(p.name) + '</span>';
-                    html += '<button class="perf-profile-delete" data-del-idx="' + i + '" title="Delete profile">✕</button>';
+                    if (!p.builtIn) html += '<button class="perf-profile-delete" data-del-idx="' + i + '" title="Delete profile">✕</button>';
                     html += '</div>';
                 });
                 html += '<button class="perf-profile-add" id="perfProfileAdd">+ New</button>';
@@ -2384,7 +2378,7 @@
 
                 // Add new profile
                 grid.querySelector('#perfProfileAdd')?.addEventListener('click', () => {
-                    if (profiles.length >= 5) { alert('Maximum 5 profiles'); return; }
+                    if (profiles.filter(p => !p.builtIn).length >= 5) { alert('Maximum 5 profiles'); return; }
                     const name = prompt('Profile name:');
                     if (!name?.trim()) return;
                     profiles.push({ name: name.trim(), settings: this._getCurrentPerfValues() });

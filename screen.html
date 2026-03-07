@@ -1019,7 +1019,7 @@
                 fetch('/api/native/launch', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ core: gameData.core, rom: gameData.romSource })
+                    body: JSON.stringify({ core: gameData.core, rom: gameData.romSource, coreOptions: (() => { try { return JSON.parse(localStorage.getItem('retrobox_perf_' + gameData.core) || '{}'); } catch { return {}; } })() })
                 }).then(r => r.json()).then(result => {
                     if (!result.ok) {
                         console.error('Native launch failed:', result.error);
