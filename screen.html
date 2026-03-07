@@ -1168,7 +1168,7 @@
             } catch (e) { console.warn('Load state failed:', e); }
         }
 
-        let fpsVisible = false; // Track FPS state (starts hidden by default)
+        let fpsVisible = false;
         function toggleFPS() {
             if (!window.EJS_emulator?.gameManager) return;
             fpsVisible = !fpsVisible;
@@ -1530,6 +1530,7 @@
                 _setDebugMode(e.detail.enabled);
                 console.log('Debug mode:', e.detail.enabled ? 'enabled' : 'disabled');
             });
+
         })();
     </script>
 </body>

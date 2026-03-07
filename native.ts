@@ -216,6 +216,8 @@ function ensureRetroarchCfg(): void {
     // Sort saves into core subdirs (matches EmulatorJS save structure)
     "sort_savefiles_enable": "true",
     "sort_savestates_enable": "true",
+    // Always show FPS counter in native mode
+    "fps_show": "true",
   };
 
   try {

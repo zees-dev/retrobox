@@ -63,6 +63,7 @@
                 this.useUrlToggle = this.shadowRoot.getElementById('useUrlToggle');
                 this.debugModeToggle = this.shadowRoot.getElementById('debugModeToggle');
                 this.loadOnStartToggle = this.shadowRoot.getElementById('loadOnStartToggle');
+
                 this.resolutionSelect = this.shadowRoot.getElementById('resolutionSelect');
                 this.resolutionRow = this.shadowRoot.getElementById('resolutionRow');
                 this.webgl2Toggle = this.shadowRoot.getElementById('webgl2Toggle');
@@ -2166,9 +2167,47 @@
             _loadPerfProfiles(system) {
                 try {
                     const saved = localStorage.getItem(this._getPerfProfilesKey(system));
-                    if (saved) return JSON.parse(saved);
+                    if (saved) {
+                        const profiles = JSON.parse(saved);
+                        // Ensure built-in profiles exist
+                        return this._ensureBuiltInProfiles(system, profiles);
+                    }
                 } catch {}
-                return [];
+                return this._ensureBuiltInProfiles(system, []);
+            }
+
+            _ensureBuiltInProfiles(system, profiles) {
+                if (system !== 'n64') return profiles;
+                const builtIn = [
+                    { name: '⚡ Max Perf', builtIn: true, settings: {
+                        'mupen64plus-cpucore': 'cached_interpreter',
+                        'mupen64plus-CountPerOp': '2',
+                        'mupen64plus-rdp-plugin': 'gliden64',
+                        'mupen64plus-RSP': 'hle',
+                        'mupen64plus-EnableNativeResFactor': '1',
+                        'mupen64plus-ThreadedRenderer': 'True',
+                        'mupen64plus-FXAA': '0',
+                        'mupen64plus-MultiSampling': '0',
+                        'mupen64plus-HybridFilter': 'False',
+                        'mupen64plus-BilinearMode': 'standard',
+                        'mupen64plus-EnableHWLighting': 'False',
+                        'mupen64plus-EnableFBEmulation': 'False',
+                        'mupen64plus-EnableCopyColorToRDRAM': 'Off',
+                        'mupen64plus-EnableCopyDepthToRDRAM': 'Off',
+                        'mupen64plus-EnableN64DepthCompare': 'False',
+                        'mupen64plus-EnableInaccurateTextureCoordinates': 'True',
+                        'mupen64plus-EnableLegacyBlending': 'True',
+                        'mupen64plus-EnableFragmentDepthWrite': 'False',
+                        'mupen64plus-EnableShadersStorage': 'True',
+                        'mupen64plus-FrameDuping': 'True',
+                    }}
+                ];
+                for (const bi of builtIn) {
+                    if (!profiles.some(p => p.name === bi.name)) {
+                        profiles.unshift(bi);
+                    }
+                }
+                return profiles;
             }
 
             _savePerfProfiles(system, profiles) {
