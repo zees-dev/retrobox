@@ -475,13 +475,18 @@
                     break;
 
                 case 'menuSetting':
-                    // Apply menu setting from controller (gameHeight, threads, debugMode) and persist
+                    // Apply menu setting from controller (gameHeight, threads, debugMode, perf) and persist
                     if (msg.setting && gameMenu) {
-                        gameMenu.applySetting(msg.setting, msg.value);
-                        console.log('Menu setting applied from controller:', msg.setting, '=', msg.value);
-                        // Update debug mode state for log buffering
-                        if (msg.setting === 'debugMode') {
-                            _setDebugMode(msg.value === true || msg.value === 'true');
+                        if (msg.setting === 'perf' && msg.value?.system && msg.value?.settings) {
+                            // Persist perf settings from controller on screen's localStorage
+                            localStorage.setItem('retrobox_perf_' + msg.value.system, JSON.stringify(msg.value.settings));
+                            console.log('Perf settings synced from controller:', msg.value.system, Object.keys(msg.value.settings).length, 'keys');
+                        } else {
+                            gameMenu.applySetting(msg.setting, msg.value);
+                            console.log('Menu setting applied from controller:', msg.setting, '=', msg.value);
+                            if (msg.setting === 'debugMode') {
+                                _setDebugMode(msg.value === true || msg.value === 'true');
+                            }
                         }
                     }
                     break;
@@ -547,10 +552,12 @@
             try { resolution = JSON.parse(localStorage.getItem('retrobox_resolution') || '{}'); } catch {}
             let webgl2 = {};
             try { webgl2 = JSON.parse(localStorage.getItem('retrobox_webgl2') || '{}'); } catch {}
+            let perf = {};
+            try { perf = { n64: JSON.parse(localStorage.getItem('retrobox_perf_n64') || 'null') }; } catch {}
             wsManager?.send({
                 type: 'menuSettingsSync',
                 targetController: controllerId,
-                settings: { gameHeight, threads, debugMode, loadOnStart, resolution, webgl2 }
+                settings: { gameHeight, threads, debugMode, loadOnStart, resolution, webgl2, perf }
             });
         }
 
@@ -1240,31 +1247,42 @@
             window.EJS_fixedSaveInterval = 0; // Disable EmulatorJS auto-save (we handle it server-side)
 
             // N64 performance optimizations (mupen64plus_next)
+            // Defaults are overridden by user perf settings from localStorage
             if (pendingROM?.core === 'n64' || pendingROM?.core === 'mupen64plus_next') {
-                window.EJS_defaultOptions = {
-                    ...window.EJS_defaultOptions,
-                    // CPU
+                const n64Defaults = {
                     "mupen64plus-cpucore": "cached_interpreter",
                     "mupen64plus-CountPerOp": "0",
-                    // GPU — GLideN64 + HLE RSP
                     "mupen64plus-RSP": "hle",
                     "mupen64plus-rdp-plugin": "gliden64",
-                    // Resolution — 2x native + FXAA
                     "mupen64plus-EnableNativeResFactor": "2",
-                    "mupen64plus-FXAA": "1",
-                    // Framebuffer — minimize copies
+                    "mupen64plus-FXAA": "0",
                     "mupen64plus-EnableFBEmulation": "True",
                     "mupen64plus-EnableCopyColorToRDRAM": "Off",
                     "mupen64plus-EnableCopyDepthToRDRAM": "Off",
-                    // Visuals
                     "mupen64plus-EnableLODEmulation": "True",
                     "mupen64plus-EnableHWLighting": "True",
                     "mupen64plus-EnableShadersStorage": "True",
                     "mupen64plus-BilinearMode": "standard",
                     "mupen64plus-MultiSampling": "0",
-                    // Aspect ratio
                     "mupen64plus-aspect": "4:3",
+                    "mupen64plus-ThreadedRenderer": "False",
+                    "mupen64plus-HybridFilter": "True",
+                    "mupen64plus-EnableN64DepthCompare": "False",
+                    "mupen64plus-EnableInaccurateTextureCoordinates": "False",
+                    "mupen64plus-EnableLegacyBlending": "True",
+                    "mupen64plus-EnableFragmentDepthWrite": "True",
+                    "mupen64plus-FrameDuping": "False",
+                    "mupen64plus-BackgroundMode": "OnePiece",
                 };
+                // Merge user perf settings (from Perf tab)
+                let perfOverrides = {};
+                try { perfOverrides = JSON.parse(localStorage.getItem('retrobox_perf_n64') || '{}'); } catch {}
+                window.EJS_defaultOptions = {
+                    ...window.EJS_defaultOptions,
+                    ...n64Defaults,
+                    ...perfOverrides,
+                };
+                console.log('N64 perf settings applied:', Object.keys(perfOverrides).length, 'overrides');
             }
 
             // // Enable multitap for multiplayer games

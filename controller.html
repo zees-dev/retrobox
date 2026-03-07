@@ -1238,6 +1238,12 @@
             if (settings.webgl2 != null) {
                 gameMenu.applySetting('webgl2', settings.webgl2);
             }
+            // Sync perf settings from screen into controller localStorage
+            if (settings.perf) {
+                for (const [system, perfData] of Object.entries(settings.perf)) {
+                    if (perfData) localStorage.setItem('retrobox_perf_' + system, JSON.stringify(perfData));
+                }
+            }
             console.log('Menu settings synced from screen:', settings);
         }
 

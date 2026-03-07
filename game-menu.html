@@ -400,6 +400,197 @@
                         .settings-pane { display: none; flex-direction: column; gap: 16px; }
                         .settings-pane.active { display: flex; }
 
+                        /* Perf settings */
+                        .perf-system-select {
+                            width: 100%;
+                            padding: 8px 12px;
+                            background: rgba(255, 255, 255, 0.08);
+                            border: 1px solid rgba(255, 255, 255, 0.12);
+                            border-radius: 6px;
+                            color: #fff;
+                            font-size: 13px;
+                            font-family: monospace;
+                            appearance: none;
+                            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+                            background-repeat: no-repeat;
+                            background-position: right 8px center;
+                            background-size: 16px;
+                            padding-right: 32px;
+                        }
+                        .perf-system-select option { background: #1a1a1a; }
+                        .perf-section-label {
+                            font-size: 10px;
+                            font-weight: 700;
+                            color: rgba(255, 255, 255, 0.3);
+                            text-transform: uppercase;
+                            letter-spacing: 0.8px;
+                            margin-top: 4px;
+                        }
+                        .perf-row {
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            padding: 8px 10px;
+                            background: rgba(255, 255, 255, 0.04);
+                            border-radius: 6px;
+                            gap: 10px;
+                        }
+                        .perf-row:hover { background: rgba(255, 255, 255, 0.07); }
+                        .perf-label {
+                            flex: 1;
+                            min-width: 0;
+                        }
+                        .perf-label .perf-name {
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: rgba(255, 255, 255, 0.85);
+                        }
+                        .perf-label .perf-desc {
+                            font-size: 10px;
+                            color: rgba(255, 255, 255, 0.35);
+                            margin-top: 2px;
+                        }
+                        .perf-control select {
+                            padding: 5px 28px 5px 8px;
+                            background: rgba(255, 255, 255, 0.1);
+                            border: 1px solid rgba(255, 255, 255, 0.15);
+                            border-radius: 4px;
+                            color: #fff;
+                            font-size: 12px;
+                            font-family: monospace;
+                            appearance: none;
+                            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+                            background-repeat: no-repeat;
+                            background-position: right 4px center;
+                            background-size: 14px;
+                            cursor: pointer;
+                        }
+                        .perf-control select option { background: #1a1a1a; }
+                        .perf-actions {
+                            display: flex;
+                            gap: 8px;
+                            margin-top: 4px;
+                        }
+                        .perf-actions button {
+                            flex: 1;
+                            padding: 10px;
+                            border-radius: 6px;
+                            font-size: 13px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.15s;
+                            font-family: monospace;
+                        }
+                        .perf-save-btn {
+                            background: rgba(74, 158, 255, 0.15);
+                            border: 1px solid rgba(74, 158, 255, 0.3);
+                            color: #4a9eff;
+                        }
+                        .perf-save-btn:hover:not(:disabled) { background: rgba(74, 158, 255, 0.25); }
+                        .perf-save-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+                        .perf-revert-btn {
+                            background: transparent;
+                            border: 1px solid rgba(255, 255, 255, 0.15);
+                            color: rgba(255, 255, 255, 0.5);
+                        }
+                        .perf-revert-btn:hover:not(:disabled) { border-color: #FF9800; color: #FF9800; }
+                        .perf-revert-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+                        .perf-defaults-btn {
+                            background: transparent;
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            color: rgba(255, 255, 255, 0.35);
+                        }
+                        .perf-defaults-btn:hover { border-color: rgba(244, 67, 54, 0.5); color: #f44336; }
+                        .perf-row.changed {
+                            border-left: 2px solid #FF9800;
+                            padding-left: 8px;
+                        }
+                        .perf-dirty-badge {
+                            display: none;
+                            background: #FF9800;
+                            color: #000;
+                            font-size: 9px;
+                            padding: 1px 5px;
+                            border-radius: 8px;
+                            font-weight: 700;
+                            letter-spacing: 0.3px;
+                            margin-left: 6px;
+                            vertical-align: middle;
+                        }
+                        .perf-change-count {
+                            font-size: 10px;
+                            color: #FF9800;
+                            text-align: center;
+                            margin-top: -8px;
+                        }
+                        .perf-profiles {
+                            margin-top: 4px;
+                        }
+                        .perf-profiles-label {
+                            font-size: 10px;
+                            color: rgba(255, 255, 255, 0.3);
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                            margin-bottom: 6px;
+                        }
+                        .perf-profiles-grid {
+                            display: flex;
+                            flex-wrap: wrap;
+                            gap: 6px;
+                        }
+                        .perf-profile-card {
+                            display: flex;
+                            align-items: center;
+                            gap: 6px;
+                            background: rgba(255, 255, 255, 0.05);
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            border-radius: 6px;
+                            padding: 7px 10px;
+                            cursor: pointer;
+                            transition: all 0.15s;
+                            flex: 1;
+                            min-width: 100px;
+                            max-width: 160px;
+                        }
+                        .perf-profile-card:hover { border-color: #4a9eff; background: rgba(74, 158, 255, 0.08); }
+                        .perf-profile-name {
+                            flex: 1;
+                            font-size: 12px;
+                            font-weight: 500;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            color: rgba(255, 255, 255, 0.7);
+                        }
+                        .perf-profile-delete {
+                            background: none;
+                            border: none;
+                            color: rgba(255, 255, 255, 0.2);
+                            cursor: pointer;
+                            font-size: 13px;
+                            padding: 0 2px;
+                            line-height: 1;
+                        }
+                        .perf-profile-delete:hover { color: #ff4444; }
+                        .perf-profile-add {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            background: transparent;
+                            border: 1px dashed rgba(255, 255, 255, 0.15);
+                            border-radius: 6px;
+                            padding: 7px 10px;
+                            cursor: pointer;
+                            transition: all 0.15s;
+                            min-width: 100px;
+                            max-width: 160px;
+                            flex: 1;
+                            color: rgba(255, 255, 255, 0.3);
+                            font-size: 12px;
+                            gap: 4px;
+                        }
+                        .perf-profile-add:hover { border-color: #4a9eff; color: #4a9eff; }
+
                         /* Save files section */
                         .saves-list {
                             display: flex;
@@ -822,6 +1013,7 @@
 
                             <div class="settings-tabs">
                                 <button class="settings-tab active" data-pane="options">⚙️ Options</button>
+                                <button class="settings-tab" data-pane="perf">⚡ Perf</button>
                                 <button class="settings-tab" data-pane="saves">💾 Saves</button>
                             </div>
 
@@ -833,41 +1025,6 @@
                                     </div>
                                     <div class="slider-container">
                                         <input type="range" id="gameHeightSlider" min="50" max="100" value="100" step="5">
-                                    </div>
-                                </div>
-
-                                <div class="setting-row setting-persisted" id="resolutionRow">
-                                    <div class="setting-label">
-                                        <span>Resolution<sup class="ejs-prefix">EJS</sup></span>
-                                    </div>
-                                    <select id="resolutionSelect" disabled>
-                                        <option value="">Select a system first</option>
-                                    </select>
-                                </div>
-
-                                <div class="setting-row setting-persisted" id="webgl2Row" style="display:none;">
-                                    <div class="toggle-row">
-                                        <div class="toggle-info">
-                                            <span class="setting-label"><span>WebGL2<sup class="ejs-prefix">EJS</sup></span></span>
-                                            <span class="toggle-description">GPU-accelerated rendering (required for resolution scaling)</span>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="webgl2Toggle" checked>
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div class="setting-row setting-persisted">
-                                    <div class="toggle-row">
-                                        <div class="toggle-info">
-                                            <span class="setting-label"><span>Threads<sup class="ejs-prefix">EJS</sup></span></span>
-                                            <span class="toggle-description">Enable multi-threading (experimental)</span>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="threadsToggle">
-                                            <span class="toggle-slider"></span>
-                                        </label>
                                     </div>
                                 </div>
 
@@ -912,6 +1069,62 @@
 
                                 <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
                                     <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM to Library</button>
+                                </div>
+                            </div>
+
+                            <div class="settings-pane" id="panePerf">
+                                <div class="perf-section-label">EMULATORJS</div>
+                                <div class="setting-row setting-persisted" id="resolutionRow">
+                                    <div class="setting-label">
+                                        <span>Resolution<sup class="ejs-prefix">EJS</sup></span>
+                                    </div>
+                                    <select id="resolutionSelect" disabled>
+                                        <option value="">Select a system first</option>
+                                    </select>
+                                </div>
+                                <div class="setting-row setting-persisted" id="webgl2Row" style="display:none;">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label"><span>WebGL2<sup class="ejs-prefix">EJS</sup></span></span>
+                                            <span class="toggle-description">GPU-accelerated rendering (required for resolution scaling)</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="webgl2Toggle" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="setting-row setting-persisted">
+                                    <div class="toggle-row">
+                                        <div class="toggle-info">
+                                            <span class="setting-label"><span>Threads<sup class="ejs-prefix">EJS</sup></span></span>
+                                            <span class="toggle-description">WASM multi-threading for CPU-heavy cores</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="threadsToggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div style="border-top: 1px solid rgba(255,255,255,0.06); margin: 4px 0;"></div>
+                                <div class="perf-section-label">CORE OPTIONS</div>
+                                <select class="perf-system-select" id="perfSystemSelect">
+                                    <option value="n64">Nintendo 64</option>
+                                </select>
+
+                                <div id="perfSettingsContainer"></div>
+
+                                <div class="perf-change-count" id="perfChangeCount"></div>
+                                <div class="perf-actions">
+                                    <button class="perf-defaults-btn" id="perfDefaultsBtn" disabled>Defaults</button>
+                                    <button class="perf-revert-btn" id="perfRevertBtn" disabled>↩ Revert</button>
+                                    <button class="perf-save-btn" id="perfSaveBtn" disabled>Save <span class="perf-dirty-badge" id="perfDirtyBadge">UNSAVED</span></button>
+                                </div>
+
+                                <div class="perf-profiles">
+                                    <div class="perf-profiles-label">Profiles</div>
+                                    <div class="perf-profiles-grid" id="perfProfilesGrid"></div>
                                 </div>
                             </div>
 
@@ -1442,9 +1655,10 @@
                         this.shadowRoot.querySelectorAll('.settings-pane').forEach(p => p.classList.toggle('active', p.id === 'pane' + pane.charAt(0).toUpperCase() + pane.slice(1)));
                         // Update mobile header title
                         const titleEl = this.shadowRoot.getElementById('settingsModalTitle');
-                        if (titleEl) titleEl.textContent = pane === 'saves' ? 'Save Files' : 'Options';
+                        if (titleEl) titleEl.textContent = pane === 'saves' ? 'Save Files' : pane === 'perf' ? 'Performance' : 'Options';
                         // Load saves when switching to saves tab
                         if (pane === 'saves') this._loadSaves();
+                        if (pane === 'perf') this._renderPerfSettings();
                     });
                 });
 
@@ -1861,6 +2075,288 @@
                 } catch (e) {
                     list.innerHTML = '<div class="saves-empty">Failed to load saves</div>';
                 }
+            }
+
+            // ── Perf Settings ─────────────────────────────────────────────
+            _perfOptionDefs() {
+                return {
+                    n64: {
+                        sections: [
+                            { label: 'CPU', options: [
+                                { key: 'mupen64plus-cpucore', name: 'CPU Core', desc: 'Interpreter type', values: [['cached_interpreter','Cached Interpreter'],['pure_interpreter','Pure Interpreter']], default: 'cached_interpreter' },
+                                { key: 'mupen64plus-CountPerOp', name: 'Count Per Op', desc: 'Counter approximation (0=auto)', values: [['0','Auto'],['1','1'],['2','2'],['3','3']], default: '0' },
+                            ]},
+                            { label: 'GPU', options: [
+                                { key: 'mupen64plus-rdp-plugin', name: 'RDP Plugin', desc: 'Graphics renderer', values: [['gliden64','GLideN64'],['angrylion','Angrylion (SW)']], default: 'gliden64' },
+                                { key: 'mupen64plus-RSP', name: 'RSP Plugin', desc: 'Signal processor', values: [['hle','HLE (fast)'],['cxd4','CXD4 (accurate)']], default: 'hle' },
+                                { key: 'mupen64plus-EnableNativeResFactor', name: 'Resolution', desc: 'Render scale (1x=fastest)', values: [['1','1x Native'],['2','2x'],['3','3x'],['4','4x']], default: '2' },
+                                { key: 'mupen64plus-ThreadedRenderer', name: 'Threaded Renderer', desc: 'GL on separate thread (+FPS, +input lag)', toggle: true, on: 'True', off: 'False', default: 'False' },
+                                { key: 'mupen64plus-FXAA', name: 'FXAA', desc: 'Anti-aliasing post-process', toggle: true, on: '1', off: '0', default: '0' },
+                                { key: 'mupen64plus-MultiSampling', name: 'MSAA', desc: 'Multi-sample anti-aliasing', values: [['0','Off'],['2','2x'],['4','4x'],['8','8x']], default: '0' },
+                                { key: 'mupen64plus-HybridFilter', name: 'Hybrid Filter', desc: 'Integer scaling filter (can be slow)', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-BilinearMode', name: 'Bilinear Mode', desc: 'Texture filtering', values: [['standard','Standard'],['3point','3-Point (N64-accurate)']], default: 'standard' },
+                                { key: 'mupen64plus-EnableHWLighting', name: 'HW Lighting', desc: 'Per-pixel lighting (slower)', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            ]},
+                            { label: 'Framebuffer', options: [
+                                { key: 'mupen64plus-EnableFBEmulation', name: 'FB Emulation', desc: 'Framebuffer effects (off=faster, breaks some FX)', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-EnableCopyColorToRDRAM', name: 'Color→RDRAM', desc: 'Color buffer readback', values: [['Off','Off'],['Async','Async'],['Sync','Sync']], default: 'Off' },
+                                { key: 'mupen64plus-EnableCopyDepthToRDRAM', name: 'Depth→RDRAM', desc: 'Depth buffer readback', values: [['Off','Off'],['Software','Software'],['FromMem','FromMem']], default: 'Off' },
+                                { key: 'mupen64plus-EnableN64DepthCompare', name: 'N64 Depth Compare', desc: 'Accurate depth (expensive)', values: [['False','Off'],['True','Fast'],['Compatible','Compatible']], default: 'False' },
+                            ]},
+                            { label: 'Optimizations', options: [
+                                { key: 'mupen64plus-EnableInaccurateTextureCoordinates', name: 'Fast Tex Coords', desc: 'Faster texture math (minor glitches)', toggle: true, on: 'True', off: 'False', default: 'False' },
+                                { key: 'mupen64plus-EnableLegacyBlending', name: 'Legacy Blending', desc: 'Skip blend shaders (faster on slow GPU)', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-EnableFragmentDepthWrite', name: 'Fragment Depth Write', desc: 'GPU shader depth write', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-EnableShadersStorage', name: 'Cache Shaders', desc: 'Persistent shader cache', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-FrameDuping', name: 'Frame Duping', desc: 'Skip rendering identical frames', toggle: true, on: 'True', off: 'False', default: 'False' },
+                                { key: 'mupen64plus-EnableLODEmulation', name: 'LOD Emulation', desc: 'Level of detail', toggle: true, on: 'True', off: 'False', default: 'True' },
+                                { key: 'mupen64plus-BackgroundMode', name: 'Background Mode', desc: 'BG render mode', values: [['OnePiece','One Piece (fast)'],['Stripped','Stripped (accurate)']], default: 'OnePiece' },
+                            ]},
+                            { label: 'Display', options: [
+                                { key: 'mupen64plus-aspect', name: 'Aspect Ratio', desc: 'Display aspect ratio', values: [['4:3','4:3'],['16:9','16:9'],['16:9 adjusted','16:9 Adjusted']], default: '4:3' },
+                            ]},
+                        ]
+                    }
+                };
+            }
+
+            _getPerfStorageKey(system) { return 'retrobox_perf_' + system; }
+            _getPerfProfilesKey(system) { return 'retrobox_perf_profiles_' + system; }
+
+            _loadPerfSettings(system) {
+                try {
+                    const saved = localStorage.getItem(this._getPerfStorageKey(system));
+                    if (saved) return JSON.parse(saved);
+                } catch {}
+                return null;
+            }
+
+            _savePerfSettings(system, settings) {
+                localStorage.setItem(this._getPerfStorageKey(system), JSON.stringify(settings));
+            }
+
+            _getPerfDefaults(system) {
+                const defs = this._perfOptionDefs()[system];
+                if (!defs) return {};
+                const defaults = {};
+                for (const section of defs.sections) {
+                    for (const opt of section.options) {
+                        defaults[opt.key] = opt.default;
+                    }
+                }
+                return defaults;
+            }
+
+            _getCurrentPerfValues() {
+                const values = {};
+                const container = this.shadowRoot.getElementById('perfSettingsContainer');
+                if (!container) return values;
+                container.querySelectorAll('[data-perf-key]').forEach(el => {
+                    if (el.type === 'checkbox') {
+                        const onVal = el.dataset.perfOn;
+                        const offVal = el.dataset.perfOff;
+                        values[el.dataset.perfKey] = el.checked ? onVal : offVal;
+                    } else {
+                        values[el.dataset.perfKey] = el.value;
+                    }
+                });
+                return values;
+            }
+
+            _loadPerfProfiles(system) {
+                try {
+                    const saved = localStorage.getItem(this._getPerfProfilesKey(system));
+                    if (saved) return JSON.parse(saved);
+                } catch {}
+                return [];
+            }
+
+            _savePerfProfiles(system, profiles) {
+                localStorage.setItem(this._getPerfProfilesKey(system), JSON.stringify(profiles));
+            }
+
+            _renderPerfSettings() {
+                const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
+                const defs = this._perfOptionDefs()[system];
+                if (!defs) return;
+
+                const saved = this._loadPerfSettings(system) || this._getPerfDefaults(system);
+                this._perfSavedSnapshot = { ...saved };
+
+                const container = this.shadowRoot.getElementById('perfSettingsContainer');
+                if (!container) return;
+
+                let html = '';
+                for (const section of defs.sections) {
+                    html += '<div class="perf-section-label">' + section.label + '</div>';
+                    for (const opt of section.options) {
+                        const currentVal = saved[opt.key] !== undefined ? saved[opt.key] : opt.default;
+                        html += '<div class="perf-row" data-perf-row="' + opt.key + '">';
+                        html += '<div class="perf-label"><div class="perf-name">' + this._escHtml(opt.name) + '</div><div class="perf-desc">' + this._escHtml(opt.desc) + '</div></div>';
+                        if (opt.toggle) {
+                            const isOn = currentVal === opt.on;
+                            html += '<label class="toggle-switch"><input type="checkbox" data-perf-key="' + opt.key + '" data-perf-on="' + opt.on + '" data-perf-off="' + opt.off + '"' + (isOn ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
+                        } else {
+                            html += '<div class="perf-control"><select data-perf-key="' + opt.key + '">';
+                            for (const [val, label] of opt.values) {
+                                html += '<option value="' + val + '"' + (val === currentVal ? ' selected' : '') + '>' + label + '</option>';
+                            }
+                            html += '</select></div>';
+                        }
+                        html += '</div>';
+                    }
+                }
+                container.innerHTML = html;
+
+                // Attach change listeners for dirty tracking
+                container.querySelectorAll('[data-perf-key]').forEach(el => {
+                    el.addEventListener('change', () => this._updatePerfDirty());
+                });
+
+                this._updatePerfDirty();
+                this._renderPerfProfiles();
+                this._wirePerfButtons();
+
+                // System selector
+                this.shadowRoot.getElementById('perfSystemSelect').onchange = () => this._renderPerfSettings();
+
+                // Also refresh resolution options since they're now in perf tab
+                this.updateResolutionOptions();
+            }
+
+            _wirePerfButtons() {
+                const saveBtn = this.shadowRoot.getElementById('perfSaveBtn');
+                const revertBtn = this.shadowRoot.getElementById('perfRevertBtn');
+                const defaultsBtn = this.shadowRoot.getElementById('perfDefaultsBtn');
+
+                saveBtn.onclick = () => {
+                    const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
+                    const values = this._getCurrentPerfValues();
+                    this._savePerfSettings(system, values);
+                    this._perfSavedSnapshot = { ...values };
+                    this._updatePerfDirty();
+                    this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'perf', value: { system, settings: values } }, bubbles: true }));
+                };
+
+                revertBtn.onclick = () => {
+                    if (!this._perfSavedSnapshot) return;
+                    if (!confirm('Revert unsaved changes?')) return;
+                    this._applyPerfValues(this._perfSavedSnapshot);
+                    this._updatePerfDirty();
+                };
+
+                defaultsBtn.onclick = () => {
+                    if (!confirm('Reset all settings to defaults?')) return;
+                    const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
+                    const defaults = this._getPerfDefaults(system);
+                    this._applyPerfValues(defaults);
+                    this._updatePerfDirty();
+                };
+            }
+
+            _applyPerfValues(values) {
+                const container = this.shadowRoot.getElementById('perfSettingsContainer');
+                if (!container) return;
+                container.querySelectorAll('[data-perf-key]').forEach(el => {
+                    const val = values[el.dataset.perfKey];
+                    if (val === undefined) return;
+                    if (el.type === 'checkbox') {
+                        el.checked = val === el.dataset.perfOn;
+                    } else {
+                        el.value = val;
+                    }
+                });
+            }
+
+            _updatePerfDirty() {
+                const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
+                const current = this._getCurrentPerfValues();
+                const saved = this._perfSavedSnapshot || {};
+                const defaults = this._getPerfDefaults(system);
+                let changedCount = 0;
+                let allDefaults = true;
+                const container = this.shadowRoot.getElementById('perfSettingsContainer');
+
+                for (const key of Object.keys(current)) {
+                    const row = container?.querySelector('[data-perf-row="' + key + '"]');
+                    const isChanged = current[key] !== saved[key];
+                    if (isChanged) changedCount++;
+                    if (row) row.classList.toggle('changed', isChanged);
+                    if (current[key] !== defaults[key]) allDefaults = false;
+                }
+
+                const dirty = changedCount > 0;
+                const badge = this.shadowRoot.getElementById('perfDirtyBadge');
+                const saveBtn = this.shadowRoot.getElementById('perfSaveBtn');
+                const revertBtn = this.shadowRoot.getElementById('perfRevertBtn');
+                const defaultsBtn = this.shadowRoot.getElementById('perfDefaultsBtn');
+                const countEl = this.shadowRoot.getElementById('perfChangeCount');
+
+                if (badge) badge.style.display = dirty ? 'inline' : 'none';
+                if (saveBtn) {
+                    saveBtn.disabled = !dirty;
+                    // Rebuild button content
+                    saveBtn.innerHTML = dirty ? 'Save <span class="perf-dirty-badge" style="display:inline">' + changedCount + ' unsaved</span>' : 'Saved ✓';
+                }
+                if (revertBtn) revertBtn.disabled = !dirty;
+                if (defaultsBtn) defaultsBtn.disabled = allDefaults;
+                if (countEl) countEl.textContent = dirty ? changedCount + ' setting' + (changedCount > 1 ? 's' : '') + ' modified' : '';
+            }
+
+            _renderPerfProfiles() {
+                const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
+                const profiles = this._loadPerfProfiles(system);
+                const grid = this.shadowRoot.getElementById('perfProfilesGrid');
+                if (!grid) return;
+
+                let html = '';
+                profiles.forEach((p, i) => {
+                    html += '<div class="perf-profile-card" data-profile-idx="' + i + '">';
+                    html += '<span class="perf-profile-name">' + this._escHtml(p.name) + '</span>';
+                    html += '<button class="perf-profile-delete" data-del-idx="' + i + '" title="Delete profile">✕</button>';
+                    html += '</div>';
+                });
+                html += '<button class="perf-profile-add" id="perfProfileAdd">+ New</button>';
+                grid.innerHTML = html;
+
+                // Apply profile on card click
+                grid.querySelectorAll('.perf-profile-card').forEach(card => {
+                    card.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('perf-profile-delete')) return;
+                        const idx = parseInt(card.dataset.profileIdx);
+                        const profile = profiles[idx];
+                        if (!profile) return;
+                        this._applyPerfValues(profile.settings);
+                        this._updatePerfDirty();
+                    });
+                });
+
+                // Delete profile
+                grid.querySelectorAll('.perf-profile-delete').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const idx = parseInt(btn.dataset.delIdx);
+                        if (!confirm('Delete profile "' + profiles[idx]?.name + '"?')) return;
+                        profiles.splice(idx, 1);
+                        this._savePerfProfiles(system, profiles);
+                        this._renderPerfProfiles();
+                    });
+                });
+
+                // Add new profile
+                grid.querySelector('#perfProfileAdd')?.addEventListener('click', () => {
+                    if (profiles.length >= 5) { alert('Maximum 5 profiles'); return; }
+                    const name = prompt('Profile name:');
+                    if (!name?.trim()) return;
+                    profiles.push({ name: name.trim(), settings: this._getCurrentPerfValues() });
+                    this._savePerfProfiles(system, profiles);
+                    this._renderPerfProfiles();
+                });
+            }
+
+            // Get perf settings for a system (used at game start)
+            getPerfSettings(system) {
+                return this._loadPerfSettings(system);
             }
 
             _escHtml(s) {
