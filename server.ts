@@ -672,6 +672,41 @@ const serverConfig = {
       return new Response(JSON.stringify(result), { status: result.ok ? 200 : 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
     }
 
+    if (pathname === "/api/native/perf" && req.method === "POST") {
+      if (!native) return new Response(JSON.stringify({ ok: false, error: "Native not supported" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      try {
+        const body = await req.json() as { coreOptions?: Record<string, string>, retroarchOptions?: Record<string, string> };
+        if (body.coreOptions) native.writeCoreOptions("n64", body.coreOptions);
+        // RetroArch options are written via ensureRetroarchCfg-style patching
+        if (body.retroarchOptions) {
+          const { execSync } = require("child_process");
+          const RETROARCH_CFG = "/var/cache/kiosk-home/.config/retroarch/retroarch.cfg";
+          try {
+            let content = execSync(`/run/wrappers/bin/sudo cat "${RETROARCH_CFG}"`, { encoding: "utf-8", timeout: 3000 });
+            const lines = content.split("\n");
+            const found = new Set<string>();
+            const patched = lines.map((line: string) => {
+              const match = line.match(/^(\S+)\s*=\s*/);
+              if (match && match[1] in body.retroarchOptions!) {
+                found.add(match[1]);
+                return `${match[1]} = "${body.retroarchOptions![match[1]]}"`;
+              }
+              return line;
+            });
+            for (const [k, v] of Object.entries(body.retroarchOptions)) {
+              if (!found.has(k)) patched.push(`${k} = "${v}"`);
+            }
+            execSync(`/run/wrappers/bin/sudo tee "${RETROARCH_CFG}" > /dev/null`, { input: patched.join("\n"), timeout: 3000 });
+          } catch (e: any) {
+            console.warn("[native] Failed to patch retroarch.cfg:", e.message);
+          }
+        }
+        return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
     if (pathname === "/api/native/cores") {
       if (!native) return new Response(JSON.stringify({ supported: false, cores: {} }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
       const probe = native.probeNativeSupport();

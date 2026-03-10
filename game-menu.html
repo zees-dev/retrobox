@@ -136,6 +136,8 @@
                             transition: opacity 0.3s, visibility 0.3s;
                             width: max(350px, 25vw);
                             max-width: 90vw;
+                            max-height: 90vh;
+                            overflow-y: auto;
                             box-sizing: border-box;
                             pointer-events: auto;
                         }
@@ -401,6 +403,13 @@
                         .settings-pane { display: none; flex-direction: column; gap: 16px; }
                         .settings-pane.active { display: flex; }
 
+                        /* Perf sub-tabs */
+                        .perf-subtabs { display: flex; gap: 4px; margin-bottom: 12px; }
+                        .perf-subtab { background: none; border: 1px solid transparent; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.35); cursor: pointer; transition: all 0.15s; }
+                        .perf-subtab:hover { color: rgba(255,255,255,0.6); }
+                        .perf-subtab.active { color: #fff; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); }
+                        .perf-subpane { display: none; flex-direction: column; gap: 16px; }
+                        .perf-subpane.active { display: flex; }
                         /* Perf settings */
                         .perf-system-select {
                             width: 100%;
@@ -1076,6 +1085,12 @@
                             </div>
 
                             <div class="settings-pane" id="panePerf">
+                                <div class="perf-subtabs" id="perfSubtabs">
+                                    <button class="perf-subtab active" data-perf-sub="web">🌐 Web</button>
+                                    <button class="perf-subtab" data-perf-sub="native" id="nativePerfTab" style="display:none">🖥️ RetroArch</button>
+                                </div>
+
+                                <div class="perf-subpane active" id="perfSubWeb">
                                 <div class="perf-section-label">EMULATORJS</div>
                                 <div class="setting-row setting-persisted" id="resolutionRow">
                                     <div class="setting-label">
@@ -1129,6 +1144,28 @@
                                     <div class="perf-profiles-label">Profiles</div>
                                     <div class="perf-profiles-grid" id="perfProfilesGrid"></div>
                                 </div>
+                                </div><!-- /perfSubWeb -->
+
+                                <div class="perf-subpane" id="perfSubNative">
+                                    <div class="perf-section-label">RETROARCH CORE OPTIONS</div>
+                                    <div id="nativePerfContainer"></div>
+
+                                    <div style="border-top: 1px solid rgba(255,255,255,0.06); margin: 4px 0;"></div>
+                                    <div class="perf-section-label">RETROARCH SETTINGS</div>
+                                    <div id="nativeRetroarchContainer"></div>
+
+                                    <div class="perf-change-count" id="nativePerfChangeCount"></div>
+                                    <div class="perf-actions">
+                                        <button class="perf-defaults-btn" id="nativePerfDefaultsBtn" disabled>Defaults</button>
+                                        <button class="perf-revert-btn" id="nativePerfRevertBtn" disabled>↩ Revert</button>
+                                        <button class="perf-save-btn" id="nativePerfSaveBtn" disabled>Save <span class="perf-dirty-badge" id="nativePerfDirtyBadge">UNSAVED</span></button>
+                                    </div>
+
+                                    <div class="perf-profiles">
+                                        <div class="perf-profiles-label">Profiles</div>
+                                        <div class="perf-profiles-grid" id="nativePerfProfilesGrid"></div>
+                                    </div>
+                                </div><!-- /perfSubNative -->
                             </div>
 
                             <div class="settings-pane" id="paneSaves">
@@ -1661,7 +1698,10 @@
                         if (titleEl) titleEl.textContent = pane === 'saves' ? 'Save Files' : pane === 'perf' ? 'Performance' : 'Options';
                         // Load saves when switching to saves tab
                         if (pane === 'saves') this._loadSaves();
-                        if (pane === 'perf') this._renderPerfSettings();
+                        if (pane === 'perf') {
+                            this._renderPerfSettings();
+                            this._initPerfSubtabs();
+                        }
                     });
                 });
 
@@ -2178,6 +2218,30 @@
             _getBuiltInProfiles(system) {
                 if (system !== 'n64') return [];
                 return [
+                    { name: '✨ Balanced', builtIn: true, settings: {
+                        'mupen64plus-cpucore': 'cached_interpreter',
+                        'mupen64plus-CountPerOp': '0',
+                        'mupen64plus-rdp-plugin': 'gliden64',
+                        'mupen64plus-RSP': 'hle',
+                        'mupen64plus-EnableNativeResFactor': '2',
+                        'mupen64plus-ThreadedRenderer': 'True',
+                        'mupen64plus-FXAA': '0',
+                        'mupen64plus-MultiSampling': '0',
+                        'mupen64plus-HybridFilter': 'True',
+                        'mupen64plus-BilinearMode': '3point',
+                        'mupen64plus-EnableHWLighting': 'True',
+                        'mupen64plus-EnableFBEmulation': 'True',
+                        'mupen64plus-EnableCopyColorToRDRAM': 'Off',
+                        'mupen64plus-EnableCopyDepthToRDRAM': 'Off',
+                        'mupen64plus-EnableN64DepthCompare': 'False',
+                        'mupen64plus-EnableInaccurateTextureCoordinates': 'False',
+                        'mupen64plus-EnableLegacyBlending': 'True',
+                        'mupen64plus-EnableFragmentDepthWrite': 'True',
+                        'mupen64plus-EnableShadersStorage': 'True',
+                        'mupen64plus-FrameDuping': 'False',
+                        'mupen64plus-EnableLODEmulation': 'True',
+                        'mupen64plus-BackgroundMode': 'OnePiece',
+                    }},
                     { name: '⚡ Max Perf', builtIn: true, settings: {
                         'mupen64plus-cpucore': 'cached_interpreter',
                         'mupen64plus-CountPerOp': '2',
@@ -2384,6 +2448,276 @@
                     profiles.push({ name: name.trim(), settings: this._getCurrentPerfValues() });
                     this._savePerfProfiles(system, profiles);
                     this._renderPerfProfiles();
+                });
+            }
+
+            // ── Native RetroArch Perf ──────────────────────────────────────
+            _initPerfSubtabs() {
+                const subtabs = this.shadowRoot.getElementById('perfSubtabs');
+                if (!subtabs) return;
+                // Show native tab if native is supported
+                const nativeTab = this.shadowRoot.getElementById('nativePerfTab');
+                if (nativeTab && this._nativeSupported) nativeTab.style.display = '';
+                subtabs.querySelectorAll('.perf-subtab').forEach(tab => {
+                    tab.onclick = () => {
+                        subtabs.querySelectorAll('.perf-subtab').forEach(t => t.classList.toggle('active', t === tab));
+                        this.shadowRoot.querySelectorAll('.perf-subpane').forEach(p => p.classList.toggle('active', p.id === 'perfSub' + (tab.dataset.perfSub === 'web' ? 'Web' : 'Native')));
+                        if (tab.dataset.perfSub === 'native') this._renderNativePerfSettings();
+                    };
+                });
+            }
+
+            _nativePerfOptionDefs() {
+                return {
+                    sections: [
+                        { label: 'CPU', options: [
+                            { key: 'mupen64plus-cpucore', name: 'CPU Core', values: [['cached_interpreter','Cached Interpreter'],['pure_interpreter','Pure Interpreter']], default: 'cached_interpreter' },
+                        ]},
+                        { label: 'GPU', options: [
+                            { key: 'mupen64plus-rdp-plugin', name: 'RDP Plugin', values: [['gliden64','GLideN64'],['angrylion','Angrylion (SW)']], default: 'gliden64' },
+                            { key: 'mupen64plus-rsp-plugin', name: 'RSP Plugin', values: [['hle','HLE (fast)'],['cxd4','CXD4 (accurate)']], default: 'hle' },
+                            { key: 'mupen64plus-EnableNativeResFactor', name: 'Resolution', values: [['1','1x Native'],['2','2x'],['3','3x'],['4','4x']], default: '2' },
+                            { key: 'mupen64plus-ThreadedRenderer', name: 'Threaded Renderer', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            { key: 'mupen64plus-FXAA', name: 'FXAA', toggle: true, on: '1', off: '0', default: '1' },
+                            { key: 'mupen64plus-BilinearMode', name: 'Bilinear Mode', values: [['standard','Standard'],['3point','3-Point (N64)']], default: '3point' },
+                            { key: 'mupen64plus-EnableHWLighting', name: 'HW Lighting', toggle: true, on: 'True', off: 'False', default: 'True' },
+                        ]},
+                        { label: 'Framebuffer', options: [
+                            { key: 'mupen64plus-EnableFBEmulation', name: 'FB Emulation', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            { key: 'mupen64plus-EnableCopyColorToRDRAM', name: 'Color→RDRAM', values: [['Off','Off'],['Async','Async'],['Sync','Sync']], default: 'Off' },
+                            { key: 'mupen64plus-EnableCopyDepthToRDRAM', name: 'Depth→RDRAM', values: [['Off','Off'],['Software','Software'],['FromMem','FromMem']], default: 'Off' },
+                        ]},
+                        { label: 'Optimizations', options: [
+                            { key: 'mupen64plus-EnableShadersStorage', name: 'Cache Shaders', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            { key: 'mupen64plus-EnableLODEmulation', name: 'LOD Emulation', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            { key: 'mupen64plus-EnableTextureCache', name: 'Texture Cache', toggle: true, on: 'True', off: 'False', default: 'True' },
+                            { key: 'mupen64plus-MaxTxCacheSize', name: 'Texture Cache Size', values: [['1000','1000MB'],['4000','4000MB'],['8000','8000MB']], default: '8000' },
+                        ]},
+                    ]
+                };
+            }
+
+            _nativeRetroarchOptionDefs() {
+                return {
+                    sections: [
+                        { label: 'Latency', options: [
+                            { key: 'video_frame_delay', name: 'Frame Delay (ms)', values: [['0','0'],['2','2'],['4','4'],['6','6'],['8','8']], default: '4' },
+                            { key: 'video_frame_delay_auto', name: 'Auto Frame Delay', toggle: true, on: 'true', off: 'false', default: 'true' },
+                            { key: 'video_hard_sync', name: 'GPU Hard Sync', toggle: true, on: 'true', off: 'false', default: 'true' },
+                            { key: 'video_hard_sync_frames', name: 'Hard Sync Frames', values: [['0','0'],['1','1'],['2','2'],['3','3']], default: '1' },
+                            { key: 'audio_latency', name: 'Audio Latency (ms)', values: [['32','32'],['48','48'],['64','64'],['96','96'],['128','128']], default: '32' },
+                        ]},
+                    ]
+                };
+            }
+
+            _getNativePerfDefaults() {
+                const defaults = {};
+                for (const section of this._nativePerfOptionDefs().sections) {
+                    for (const opt of section.options) defaults[opt.key] = opt.default;
+                }
+                for (const section of this._nativeRetroarchOptionDefs().sections) {
+                    for (const opt of section.options) defaults[opt.key] = opt.default;
+                }
+                return defaults;
+            }
+
+            _getNativeBuiltInProfiles() {
+                return [
+                    { name: '⚡ Performance', builtIn: true, settings: {
+                        'mupen64plus-cpucore': 'cached_interpreter',
+                        'mupen64plus-rdp-plugin': 'gliden64', 'mupen64plus-rsp-plugin': 'hle',
+                        'mupen64plus-EnableNativeResFactor': '1', 'mupen64plus-ThreadedRenderer': 'True',
+                        'mupen64plus-FXAA': '0', 'mupen64plus-BilinearMode': 'standard',
+                        'mupen64plus-EnableHWLighting': 'False', 'mupen64plus-EnableFBEmulation': 'False',
+                        'mupen64plus-EnableCopyColorToRDRAM': 'Off', 'mupen64plus-EnableCopyDepthToRDRAM': 'Off',
+                        'mupen64plus-EnableShadersStorage': 'True', 'mupen64plus-EnableLODEmulation': 'True',
+                        'mupen64plus-EnableTextureCache': 'True', 'mupen64plus-MaxTxCacheSize': '4000',
+                        'video_frame_delay': '4', 'video_frame_delay_auto': 'true',
+                        'video_hard_sync': 'true', 'video_hard_sync_frames': '1', 'audio_latency': '32',
+                    }},
+                    { name: '🎨 Quality', builtIn: true, settings: {
+                        'mupen64plus-cpucore': 'cached_interpreter',
+                        'mupen64plus-rdp-plugin': 'gliden64', 'mupen64plus-rsp-plugin': 'hle',
+                        'mupen64plus-EnableNativeResFactor': '4', 'mupen64plus-ThreadedRenderer': 'True',
+                        'mupen64plus-FXAA': '1', 'mupen64plus-BilinearMode': '3point',
+                        'mupen64plus-EnableHWLighting': 'True', 'mupen64plus-EnableFBEmulation': 'True',
+                        'mupen64plus-EnableCopyColorToRDRAM': 'Async', 'mupen64plus-EnableCopyDepthToRDRAM': 'Software',
+                        'mupen64plus-EnableShadersStorage': 'True', 'mupen64plus-EnableLODEmulation': 'True',
+                        'mupen64plus-EnableTextureCache': 'True', 'mupen64plus-MaxTxCacheSize': '8000',
+                        'video_frame_delay': '2', 'video_frame_delay_auto': 'true',
+                        'video_hard_sync': 'true', 'video_hard_sync_frames': '1', 'audio_latency': '48',
+                    }},
+                ];
+            }
+
+            async _renderNativePerfSettings() {
+                // Fetch current native settings from server
+                try {
+                    const resp = await fetch('/api/native/cores');
+                    const data = await resp.json();
+                    if (!data.supported) return;
+                } catch { return; }
+
+                const coreDefs = this._nativePerfOptionDefs();
+                const retroarchDefs = this._nativeRetroarchOptionDefs();
+                const saved = this._nativeSavedSnapshot || this._getNativePerfDefaults();
+                this._nativeSavedSnapshot = { ...saved };
+
+                // Render core options
+                const coreContainer = this.shadowRoot.getElementById('nativePerfContainer');
+                if (coreContainer) {
+                    let html = '';
+                    for (const section of coreDefs.sections) {
+                        html += '<div class="perf-section-label">' + section.label + '</div>';
+                        for (const opt of section.options) {
+                            const val = saved[opt.key] !== undefined ? saved[opt.key] : opt.default;
+                            html += '<div class="perf-row" data-native-row="' + opt.key + '">';
+                            html += '<div class="perf-label"><div class="perf-name">' + this._escHtml(opt.name) + '</div></div>';
+                            if (opt.toggle) {
+                                const isOn = val === opt.on;
+                                html += '<label class="toggle-switch"><input type="checkbox" data-native-key="' + opt.key + '" data-native-on="' + opt.on + '" data-native-off="' + opt.off + '"' + (isOn ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
+                            } else {
+                                html += '<div class="perf-control"><select data-native-key="' + opt.key + '">';
+                                for (const [v, l] of opt.values) html += '<option value="' + v + '"' + (v === val ? ' selected' : '') + '>' + l + '</option>';
+                                html += '</select></div>';
+                            }
+                            html += '</div>';
+                        }
+                    }
+                    coreContainer.innerHTML = html;
+                }
+
+                // Render retroarch options
+                const raContainer = this.shadowRoot.getElementById('nativeRetroarchContainer');
+                if (raContainer) {
+                    let html = '';
+                    for (const section of retroarchDefs.sections) {
+                        html += '<div class="perf-section-label">' + section.label + '</div>';
+                        for (const opt of section.options) {
+                            const val = saved[opt.key] !== undefined ? saved[opt.key] : opt.default;
+                            html += '<div class="perf-row" data-native-row="' + opt.key + '">';
+                            html += '<div class="perf-label"><div class="perf-name">' + this._escHtml(opt.name) + '</div></div>';
+                            if (opt.toggle) {
+                                const isOn = val === opt.on;
+                                html += '<label class="toggle-switch"><input type="checkbox" data-native-key="' + opt.key + '" data-native-on="' + opt.on + '" data-native-off="' + opt.off + '"' + (isOn ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
+                            } else {
+                                html += '<div class="perf-control"><select data-native-key="' + opt.key + '">';
+                                for (const [v, l] of opt.values) html += '<option value="' + v + '"' + (v === val ? ' selected' : '') + '>' + l + '</option>';
+                                html += '</select></div>';
+                            }
+                            html += '</div>';
+                        }
+                    }
+                    raContainer.innerHTML = html;
+                }
+
+                // Attach change listeners
+                this.shadowRoot.querySelectorAll('[data-native-key]').forEach(el => {
+                    el.addEventListener('change', () => this._updateNativePerfDirty());
+                });
+                this._updateNativePerfDirty();
+                this._wireNativePerfButtons();
+                this._renderNativePerfProfiles();
+            }
+
+            _getCurrentNativePerfValues() {
+                const values = {};
+                this.shadowRoot.querySelectorAll('[data-native-key]').forEach(el => {
+                    if (el.type === 'checkbox') {
+                        values[el.dataset.nativeKey] = el.checked ? el.dataset.nativeOn : el.dataset.nativeOff;
+                    } else {
+                        values[el.dataset.nativeKey] = el.value;
+                    }
+                });
+                return values;
+            }
+
+            _applyNativePerfValues(values) {
+                this.shadowRoot.querySelectorAll('[data-native-key]').forEach(el => {
+                    const val = values[el.dataset.nativeKey];
+                    if (val === undefined) return;
+                    if (el.type === 'checkbox') el.checked = val === el.dataset.nativeOn;
+                    else el.value = val;
+                });
+            }
+
+            _updateNativePerfDirty() {
+                const current = this._getCurrentNativePerfValues();
+                const saved = this._nativeSavedSnapshot || {};
+                const defaults = this._getNativePerfDefaults();
+                let changedCount = 0, allDefaults = true;
+                for (const key of Object.keys(current)) {
+                    const isChanged = current[key] !== saved[key];
+                    if (isChanged) changedCount++;
+                    if (current[key] !== defaults[key]) allDefaults = false;
+                    const row = this.shadowRoot.querySelector('[data-native-row="' + key + '"]');
+                    if (row) row.classList.toggle('changed', isChanged);
+                }
+                const dirty = changedCount > 0;
+                const badge = this.shadowRoot.getElementById('nativePerfDirtyBadge');
+                if (badge) badge.style.display = dirty ? '' : 'none';
+                const saveBtn = this.shadowRoot.getElementById('nativePerfSaveBtn');
+                const revertBtn = this.shadowRoot.getElementById('nativePerfRevertBtn');
+                const defaultsBtn = this.shadowRoot.getElementById('nativePerfDefaultsBtn');
+                if (saveBtn) saveBtn.disabled = !dirty;
+                if (revertBtn) revertBtn.disabled = !dirty;
+                if (defaultsBtn) defaultsBtn.disabled = allDefaults;
+                const countEl = this.shadowRoot.getElementById('nativePerfChangeCount');
+                if (countEl) countEl.textContent = dirty ? changedCount + ' setting' + (changedCount > 1 ? 's' : '') + ' modified' : '';
+            }
+
+            _wireNativePerfButtons() {
+                const saveBtn = this.shadowRoot.getElementById('nativePerfSaveBtn');
+                const revertBtn = this.shadowRoot.getElementById('nativePerfRevertBtn');
+                const defaultsBtn = this.shadowRoot.getElementById('nativePerfDefaultsBtn');
+
+                if (saveBtn) saveBtn.onclick = async () => {
+                    const values = this._getCurrentNativePerfValues();
+                    // Split into core options vs retroarch settings
+                    const coreKeys = new Set();
+                    for (const s of this._nativePerfOptionDefs().sections) for (const o of s.options) coreKeys.add(o.key);
+                    const coreOpts = {}, raOpts = {};
+                    for (const [k, v] of Object.entries(values)) {
+                        if (coreKeys.has(k)) coreOpts[k] = v; else raOpts[k] = v;
+                    }
+                    try {
+                        await fetch('/api/native/perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coreOptions: coreOpts, retroarchOptions: raOpts }) });
+                        this._nativeSavedSnapshot = { ...values };
+                        this._updateNativePerfDirty();
+                    } catch {}
+                };
+                if (revertBtn) revertBtn.onclick = () => {
+                    if (!this._nativeSavedSnapshot || !confirm('Revert unsaved changes?')) return;
+                    this._applyNativePerfValues(this._nativeSavedSnapshot);
+                    this._updateNativePerfDirty();
+                };
+                if (defaultsBtn) defaultsBtn.onclick = () => {
+                    if (!confirm('Reset to defaults?')) return;
+                    this._applyNativePerfValues(this._getNativePerfDefaults());
+                    this._updateNativePerfDirty();
+                };
+            }
+
+            _renderNativePerfProfiles() {
+                const profiles = this._getNativeBuiltInProfiles();
+                const grid = this.shadowRoot.getElementById('nativePerfProfilesGrid');
+                if (!grid) return;
+                let html = '';
+                profiles.forEach((p, i) => {
+                    html += '<div class="perf-profile-card built-in" data-native-profile-idx="' + i + '">';
+                    html += '<span class="perf-profile-name">' + this._escHtml(p.name) + '</span>';
+                    html += '</div>';
+                });
+                grid.innerHTML = html;
+                grid.querySelectorAll('.perf-profile-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        const idx = parseInt(card.dataset.nativeProfileIdx);
+                        const profile = profiles[idx];
+                        if (!profile) return;
+                        this._applyNativePerfValues(profile.settings);
+                        this._updateNativePerfDirty();
+                    });
                 });
             }
 

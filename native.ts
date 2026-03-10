@@ -297,9 +297,12 @@ function restartKiosk(): void {
     // Remove runtime override
     try { execSync(`/run/wrappers/bin/sudo rm -rf ${KIOSK_OVERRIDE_DIR}`, { timeout: 3000 }); } catch {}
 
-    // Reload and restart
+    // Use systemctl restart — let systemd handle stop+start atomically.
+    // TimeoutStopSec=5s ensures Cage gets SIGKILL quickly.
+    // Don't pkill manually — that races with hdmi-hotplug udev watcher.
     execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} daemon-reload`, { timeout: 5000 });
-    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} restart kiosk.service`, { timeout: 10000 });
+    try { execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} reset-failed kiosk.service`, { timeout: 3000 }); } catch {}
+    execSync(`/run/wrappers/bin/sudo ${SYSTEMCTL} restart kiosk.service`, { timeout: 20000 });
     console.log("[native] Kiosk restarted");
   } catch (e: any) {
     console.error("[native] Failed to restart kiosk:", e.message);
