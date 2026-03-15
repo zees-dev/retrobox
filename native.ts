@@ -193,7 +193,20 @@ export function writeCoreOptions(system: string, overrides?: Record<string, stri
  * Reads → patches → writes back. Uses sudo (kiosk-owned file).
  */
 function ensureRetroarchCfg(): void {
+  // RetroAchievements from env vars
+  const raUser = process.env.RA_USERNAME || "";
+  const raToken = process.env.RA_TOKEN || "";
+
   const OPTIMAL: Record<string, string> = {
+    // RetroAchievements
+    ...(raUser && raToken ? {
+      "cheevos_enable": "true",
+      "cheevos_username": raUser,
+      "cheevos_token": raToken,
+      "cheevos_hardcore_mode_enable": "false",
+      "cheevos_badges_enable": "true",
+      "cheevos_unlock_sound_enable": "true",
+    } : {}),
     // Input: late polling = reads joypad as late as possible before frame render
     "input_poll_type_behavior": "2",
     // GPU hard sync: CPU waits for GPU — reduces internal pipeline lag

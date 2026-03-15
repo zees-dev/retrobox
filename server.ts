@@ -321,6 +321,12 @@ const serverConfig = {
     }
 
     // Cheats API — parses RetroArch .cht files for EmulatorJS
+    if (pathname === "/api/ra-config") {
+      const username = process.env.RA_USERNAME || "";
+      const token = process.env.RA_TOKEN || "";
+      return new Response(JSON.stringify({ username, token, enabled: !!(username && token) }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+    }
+
     if (pathname === "/api/cheats") {
       const game = url.searchParams.get("game");
       const system = url.searchParams.get("system");

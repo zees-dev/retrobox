@@ -1043,6 +1043,15 @@
                 localStorage.setItem('retrobox_threads', gameData.threads);
             }
 
+            // Fetch RetroAchievements config if not already loaded
+            if (!window._raConfig) {
+                try {
+                    const raResp = await fetch('/api/ra-config');
+                    const ra = await raResp.json();
+                    if (ra.enabled) window._raConfig = ra;
+                } catch {}
+            }
+
             pendingROM = {
                 source: gameData.romSource,
                 name: gameData.romName.split('.').slice(0, -1).join('.'),
@@ -1361,6 +1370,13 @@
             window.EJS_gameUrl = pendingROM.source;
             window.EJS_core = pendingROM.core;
             if (pendingROM.biosSource) window.EJS_biosUrl = pendingROM.biosSource;
+
+            // RetroAchievements (credentials from /api/ra-config)
+            if (window._raConfig) {
+                window.EJS_cheevos = true;
+                window.EJS_cheevosUsername = window._raConfig.username;
+                window.EJS_cheevosToken = window._raConfig.token;
+            }
 
             // Load cheats if available
             try {
