@@ -557,6 +557,28 @@ const serverConfig = {
       }
     }
 
+    // Delete a ROM file
+    if (pathname === "/api/delete-rom" && req.method === "POST") {
+      try {
+        const { path: romPath } = await req.json() as { path: string };
+        if (!romPath || !romPath.startsWith("presets/")) {
+          return new Response(JSON.stringify({ ok: false, error: "Invalid path" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+        // Prevent path traversal
+        const resolved = join(ROOT_DIR, romPath);
+        if (!resolved.startsWith(join(ROOT_DIR, "presets"))) {
+          return new Response(JSON.stringify({ ok: false, error: "Invalid path" }), { status: 400, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+        if (!existsSync(resolved)) {
+          return new Response(JSON.stringify({ ok: false, error: "Not found" }), { status: 404, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+        }
+        unlinkSync(resolved);
+        return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json", ...getHeaders(req) } });
+      }
+    }
+
     if (pathname === "/api/systems" && req.method === "GET") {
       const presetsDir = join(ROOT_DIR, "presets");
       try {

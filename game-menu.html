@@ -603,6 +603,79 @@
                         }
                         .perf-profile-add:hover { border-color: #4a9eff; color: #4a9eff; }
 
+                        /* Section labels */
+                        .roms-section-label {
+                            font-size: 10px;
+                            font-weight: 700;
+                            color: rgba(255, 255, 255, 0.25);
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                            padding: 0 0 4px;
+                        }
+                        /* ROM list */
+                        .roms-list {
+                            display: flex;
+                            flex-direction: column;
+                            gap: 4px;
+                        }
+                        .rom-system-header {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            padding: 8px;
+                            background: rgba(255, 255, 255, 0.04);
+                            border-radius: 6px;
+                            cursor: pointer;
+                            user-select: none;
+                            transition: background 0.15s;
+                        }
+                        .rom-system-header:hover { background: rgba(255, 255, 255, 0.08); }
+                        .rom-system-chevron {
+                            font-size: 10px;
+                            color: rgba(255, 255, 255, 0.3);
+                            transition: transform 0.2s;
+                            flex-shrink: 0;
+                        }
+                        .rom-system-header.expanded .rom-system-chevron { transform: rotate(90deg); }
+                        .rom-system-name {
+                            flex: 1;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: rgba(255, 255, 255, 0.6);
+                        }
+                        .rom-system-count {
+                            font-size: 10px;
+                            color: rgba(255, 255, 255, 0.25);
+                        }
+                        .rom-system-items {
+                            display: none;
+                            flex-direction: column;
+                            gap: 2px;
+                            padding: 2px 0 2px 18px;
+                        }
+                        .rom-system-header.expanded + .rom-system-items { display: flex; }
+                        .rom-item {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            padding: 6px 8px;
+                            background: rgba(255, 255, 255, 0.04);
+                            border-radius: 4px;
+                            font-size: 12px;
+                            color: rgba(255, 255, 255, 0.7);
+                        }
+                        .rom-item:hover { background: rgba(255, 255, 255, 0.08); }
+                        .rom-name {
+                            flex: 1;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .rom-players {
+                            font-size: 10px;
+                            color: rgba(255, 255, 255, 0.3);
+                            white-space: nowrap;
+                        }
                         /* Save files section */
                         .saves-list {
                             display: flex;
@@ -1026,7 +1099,7 @@
                             <div class="settings-tabs">
                                 <button class="settings-tab active" data-pane="options">⚙️ Options</button>
                                 <button class="settings-tab" data-pane="perf">⚡ Perf</button>
-                                <button class="settings-tab" data-pane="saves">💾 Saves</button>
+                                <button class="settings-tab" data-pane="roms">📂 ROMs</button>
                             </div>
 
                             <div class="settings-pane active" id="paneOptions">
@@ -1079,9 +1152,6 @@
                                     </div>
                                 </div>
 
-                                <div class="setting-row" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
-                                    <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM to Library</button>
-                                </div>
                             </div>
 
                             <div class="settings-pane" id="panePerf">
@@ -1168,8 +1238,21 @@
                                 </div><!-- /perfSubNative -->
                             </div>
 
-                            <div class="settings-pane" id="paneSaves">
+                            <div class="settings-pane" id="paneRoms">
+                                <!-- Upload button (top) -->
+                                <div style="margin-bottom:14px;">
+                                    <button id="uploadRomBtn" style="width:100%;padding:10px;background:rgba(26,175,255,0.15);border:1px solid rgba(26,175,255,0.3);border-radius:8px;color:#1AAFFF;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.15s;">📁 Upload ROM</button>
+                                </div>
+
+                                <!-- Saves section -->
+                                <div class="roms-section-label">SAVE FILES</div>
                                 <div class="saves-list" id="savesList">
+                                    <div class="saves-empty">Loading...</div>
+                                </div>
+
+                                <!-- ROMs section -->
+                                <div class="roms-section-label" style="margin-top:14px;">ROM LIBRARY</div>
+                                <div class="roms-list" id="romsList">
                                     <div class="saves-empty">Loading...</div>
                                 </div>
                             </div>
@@ -1695,9 +1778,9 @@
                         this.shadowRoot.querySelectorAll('.settings-pane').forEach(p => p.classList.toggle('active', p.id === 'pane' + pane.charAt(0).toUpperCase() + pane.slice(1)));
                         // Update mobile header title
                         const titleEl = this.shadowRoot.getElementById('settingsModalTitle');
-                        if (titleEl) titleEl.textContent = pane === 'saves' ? 'Save Files' : pane === 'perf' ? 'Performance' : 'Options';
-                        // Load saves when switching to saves tab
-                        if (pane === 'saves') this._loadSaves();
+                        if (titleEl) titleEl.textContent = pane === 'roms' ? 'ROMs' : pane === 'perf' ? 'Performance' : 'Options';
+                        // Load saves + roms when switching to roms tab
+                        if (pane === 'roms') { this._loadSaves(); this._loadRoms(); }
                         if (pane === 'perf') {
                             this._renderPerfSettings();
                             this._initPerfSubtabs();
@@ -2117,6 +2200,92 @@
                     });
                 } catch (e) {
                     list.innerHTML = '<div class="saves-empty">Failed to load saves</div>';
+                }
+            }
+
+            async _loadRoms() {
+                const list = this.shadowRoot.getElementById('romsList');
+                if (!list) return;
+                list.innerHTML = '<div class="saves-empty">Loading...</div>';
+                try {
+                    const resp = await fetch('/api/presets?t=' + Date.now());
+                    const presets = await resp.json();
+                    const systems = Object.keys(presets);
+                    if (!systems.length) {
+                        list.innerHTML = '<div class="saves-empty">No ROMs found</div>';
+                        return;
+                    }
+                    let html = '';
+                    let totalRoms = 0;
+                    for (const system of systems.sort()) {
+                        const playerGroups = presets[system];
+                        const roms = [];
+                        for (const [pc, games] of Object.entries(playerGroups)) {
+                            for (const g of games) {
+                                roms.push({ name: g.name, players: pc, path: g.rom });
+                            }
+                        }
+                        if (!roms.length) continue;
+                        totalRoms += roms.length;
+                        const displayName = this.coreNames[system] || system;
+                        const sysId = 'romsys_' + system;
+                        html += '<div class="rom-system-header" data-sys="' + sysId + '">';
+                        html += '<span class="rom-system-chevron">▶</span>';
+                        html += '<span class="rom-system-name">' + this._escHtml(displayName) + '</span>';
+                        html += '<span class="rom-system-count">' + roms.length + '</span>';
+                        html += '</div>';
+                        html += '<div class="rom-system-items" id="' + sysId + '">';
+                        for (const r of roms.sort((a, b) => a.name.localeCompare(b.name))) {
+                            html += '<div class="rom-item">';
+                            html += '<span class="rom-name">' + this._escHtml(r.name) + '</span>';
+                            html += '<span class="rom-players">' + r.players + '</span>';
+                            html += '<button class="save-btn download" data-path="' + this._escHtml(r.path) + '" data-name="' + this._escHtml(r.name) + '" title="Download ROM">📥</button>';
+                            html += '<button class="save-btn delete" data-path="' + this._escHtml(r.path) + '" data-name="' + this._escHtml(r.name) + '" title="Delete ROM">✕</button>';
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    }
+                    if (!totalRoms) {
+                        list.innerHTML = '<div class="saves-empty">No ROMs found</div>';
+                        return;
+                    }
+                    list.innerHTML = html;
+                    // Attach expand/collapse handlers
+                    list.querySelectorAll('.rom-system-header').forEach(hdr => {
+                        hdr.onclick = () => hdr.classList.toggle('expanded');
+                    });
+                    // Attach download handlers
+                    list.querySelectorAll('.save-btn.download').forEach(btn => {
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            const a = document.createElement('a');
+                            a.href = '/' + btn.dataset.path;
+                            a.download = btn.dataset.path.split('/').pop();
+                            a.click();
+                        };
+                    });
+                    // Attach delete handlers
+                    list.querySelectorAll('.save-btn.delete').forEach(btn => {
+                        btn.onclick = async (e) => {
+                            e.stopPropagation();
+                            const name = btn.dataset.name;
+                            if (!confirm('Delete ROM?\\n\\n' + name + '\\n\\nThis cannot be undone.')) return;
+                            try {
+                                const resp = await fetch('/api/delete-rom', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ path: btn.dataset.path })
+                                });
+                                if (resp.ok) {
+                                    this._loadRoms();
+                                } else {
+                                    alert('Failed to delete ROM');
+                                }
+                            } catch { alert('Failed to delete ROM'); }
+                        };
+                    });
+                } catch (e) {
+                    list.innerHTML = '<div class="saves-empty">Failed to load ROMs</div>';
                 }
             }
 
