@@ -2187,7 +2187,7 @@
                         btn.onclick = async (e) => {
                             e.stopPropagation();
                             const name = btn.dataset.name;
-                            if (!confirm('Delete save file?\n\n' + name + '\n\nThis cannot be undone.')) return;
+                            const cOk = window.gamepadConfirm ? await window.gamepadConfirm('Delete save file?\n\n' + name) : confirm('Delete save file?'); if (!cOk) return;
                             try {
                                 const resp = await fetch('/api/saves/' + btn.dataset.core + '/' + btn.dataset.game, { method: 'DELETE' });
                                 if (resp.ok) {
@@ -2269,7 +2269,7 @@
                         btn.onclick = async (e) => {
                             e.stopPropagation();
                             const name = btn.dataset.name;
-                            if (!confirm('Delete ROM?\\n\\n' + name + '\\n\\nThis cannot be undone.')) return;
+                            const rOk = window.gamepadConfirm ? await window.gamepadConfirm('Delete ROM?\n\n' + name) : confirm('Delete ROM?'); if (!rOk) return;
                             try {
                                 const resp = await fetch('/api/delete-rom', {
                                     method: 'POST',
@@ -2504,15 +2504,15 @@
                     this.dispatchEvent(new CustomEvent('settingchange', { detail: { setting: 'perf', value: { system, settings: values } }, bubbles: true }));
                 };
 
-                revertBtn.onclick = () => {
+                revertBtn.onclick = async () => {
                     if (!this._perfSavedSnapshot) return;
-                    if (!confirm('Revert unsaved changes?')) return;
+                    const rvOk = window.gamepadConfirm ? await window.gamepadConfirm('Revert unsaved changes?') : confirm('Revert?'); if (!rvOk) return;
                     this._applyPerfValues(this._perfSavedSnapshot);
                     this._updatePerfDirty();
                 };
 
-                defaultsBtn.onclick = () => {
-                    if (!confirm('Reset all settings to defaults?')) return;
+                defaultsBtn.onclick = async () => {
+                    const dfOk = window.gamepadConfirm ? await window.gamepadConfirm('Reset all settings to defaults?') : confirm('Reset to defaults?'); if (!dfOk) return;
                     const system = this.shadowRoot.getElementById('perfSystemSelect')?.value || 'n64';
                     const defaults = this._getPerfDefaults(system);
                     this._applyPerfValues(defaults);
@@ -2599,10 +2599,10 @@
 
                 // Delete profile
                 grid.querySelectorAll('.perf-profile-delete').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
+                    btn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         const idx = parseInt(btn.dataset.delIdx);
-                        if (!confirm('Delete profile "' + profiles[idx]?.name + '"?')) return;
+                        const dpOk = window.gamepadConfirm ? await window.gamepadConfirm('Delete profile "' + profiles[idx]?.name + '"?') : confirm('Delete profile?'); if (!dpOk) return;
                         profiles.splice(idx, 1);
                         this._savePerfProfiles(system, profiles);
                         this._renderPerfProfiles();
@@ -2856,13 +2856,13 @@
                         this._updateNativePerfDirty();
                     } catch {}
                 };
-                if (revertBtn) revertBtn.onclick = () => {
-                    if (!this._nativeSavedSnapshot || !confirm('Revert unsaved changes?')) return;
+                if (revertBtn) revertBtn.onclick = async () => {
+                    if (!this._nativeSavedSnapshot) return; const nrvOk = window.gamepadConfirm ? await window.gamepadConfirm('Revert unsaved changes?') : confirm('Revert?'); if (!nrvOk) return;
                     this._applyNativePerfValues(this._nativeSavedSnapshot);
                     this._updateNativePerfDirty();
                 };
-                if (defaultsBtn) defaultsBtn.onclick = () => {
-                    if (!confirm('Reset to defaults?')) return;
+                if (defaultsBtn) defaultsBtn.onclick = async () => {
+                    const ndfOk = window.gamepadConfirm ? await window.gamepadConfirm('Reset to defaults?') : confirm('Reset to defaults?'); if (!ndfOk) return;
                     this._applyNativePerfValues(this._getNativePerfDefaults());
                     this._updateNativePerfDirty();
                 };
