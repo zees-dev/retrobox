@@ -14,10 +14,8 @@ import { join, extname } from "path";
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
-const RETROARCH_BIN = "/nix/store/fi2vcpb1xv0b4592nhly5vcbv622xckn-retroarch-bare-1.21.0/bin/retroarch";
-const CORES_DIR = "/nix/store/68hizy252msdd7br3jig3j3310ldmy13-retroarch-with-cores-1.21.0/lib/retroarch/cores";
-const GLES3_CORE = "/nix/store/qgaqgc3zz7ivfjvbnzwa8scyg7vk83lf-libretro-mupen64plus-next-gles3-0-unstable-2025-11-14/lib/retroarch/cores/mupen64plus_next_gles3_libretro.so";
-const AUTOCONFIG_DIR = "/nix/store/zrk72vsvnwi3sdxhlh48629q9s7gk36c-retroarch-joypad-autoconfig-1.22.0/share/libretro/autoconfig";
+const RETROARCH_BIN = "/run/current-system/sw/bin/retroarch";
+const CORES_DIR = "/run/current-system/sw/lib/retroarch/cores";
 const CAGE_BIN = "/run/current-system/sw/bin/cage";
 const SYSTEMCTL = "/run/current-system/sw/bin/systemctl";
 
@@ -67,6 +65,8 @@ export const NATIVE_CORE_MAP: Record<string, string> = {
   segaMD: "genesis_plus_gx_libretro.so",
   arcade: "fbneo_libretro.so",
   psx: "pcsx_rearmed_libretro.so",
+  gamecube: "dolphin_libretro.so",
+  wii: "dolphin_libretro.so",
 };
 
 /** Per-core option file names (RetroArch uses the core's "display name") */
@@ -77,6 +77,8 @@ const CORE_OPTION_DIRS: Record<string, string> = {
   segaMD: "Genesis Plus GX",
   arcade: "FinalBurn Neo",
   psx: "PCSX-ReARMed",
+  gamecube: "dolphin-emu",
+  wii: "dolphin-emu",
 };
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -112,12 +114,7 @@ export function probeNativeSupport(): NativeProbe {
 
   const cores: Record<string, boolean> = {};
   for (const [system, coreName] of Object.entries(NATIVE_CORE_MAP)) {
-    // N64 GLES3 core lives in a separate store path
-    if (system === "n64") {
-      cores[system] = existsSync(GLES3_CORE);
-    } else {
-      cores[system] = existsSync(join(CORES_DIR, coreName));
-    }
+    cores[system] = existsSync(join(CORES_DIR, coreName));
   }
 
   const supported = retroarch && cage && seatd && Object.values(cores).some(Boolean);
@@ -128,6 +125,9 @@ export function probeNativeSupport(): NativeProbe {
 
 /** Default core options per system (merged with any user overrides) */
 const DEFAULT_CORE_OPTIONS: Record<string, Record<string, string>> = {
+  // Dual Core stalls the CPU/GPU frame handshake on this ARM64 host.
+  gamecube: { "dolphin_main_cpu_thread": "disabled" },
+  wii: { "dolphin_main_cpu_thread": "disabled" },
   psx: {
     "pcsx_rearmed_neon_interlace_enable": "disabled",
     "pcsx_rearmed_neon_enhancement_enable": "enabled",
@@ -429,14 +429,10 @@ export interface LaunchOptions {
   onExit?: (code: number | null, signal: string | null) => void;
 }
 
-/**
- * Resolve the core .so path for a system.
- * N64 GLES3 variant lives in a separate Nix store path.
- */
+/** Resolve the core .so path for a system. */
 function resolveCorePath(system: string): string | null {
   const coreName = NATIVE_CORE_MAP[system];
   if (!coreName) return null;
-  if (system === "n64") return GLES3_CORE;
   return join(CORES_DIR, coreName);
 }
 
@@ -529,19 +525,33 @@ export async function launchNative(
 
   // Spawn Cage → RetroArch
   try {
-    const env: Record<string, string> = {
+    let configPath = RETROARCH_CFG;
+    if (system === "gamecube" || system === "wii") {
+      configPath = join(KIOSK_HOME, ".config/retroarch/retrobox-dolphin.cfg");
+      const baseConfig = execSync(`${SUDO} cat "${RETROARCH_CFG}"`, { encoding: "utf-8", timeout: 10000 });
+      execSync(`${SUDO} tee "${configPath}" > /dev/null`, {
+        input: baseConfig.replace(/^[ \t]*video_driver\s*=.*$/gm, "") + '\nvideo_driver = "vulkan"\n',
+        timeout: 10000,
+      });
+    }
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
       XDG_RUNTIME_DIR: "/run/user/1000",
       LIBSEAT_BACKEND: "seatd",
       WLR_RENDERER: "gles2",
       WLR_NO_HARDWARE_CURSORS: "1",
       HOME: KIOSK_HOME,
+      PATH: `/run/wrappers/bin:/run/current-system/sw/bin:${process.env.PATH || ""}`,
     };
+    // A parent using nix-ld may carry a libc incompatible with the current system.
+    delete env.LD_LIBRARY_PATH;
 
     const retroarchArgs = [
       "-s", "-d", "--",
       RETROARCH_BIN,
-      "--config", RETROARCH_CFG,
-      "--appendconfig", "/dev/null", // prevent NixOS wrapper injection
+      "--config", configPath,
+      // Leave --appendconfig to the Nix wrapper's current asset and core paths.
       "-L", corePath,
       actualRomPath,
     ];
@@ -549,11 +559,7 @@ export async function launchNative(
     console.log(`[native] exec: ${CAGE_BIN} ${retroarchArgs.join(" ")}`);
 
     cageProcess = spawn(CAGE_BIN, retroarchArgs, {
-      env: {
-        ...process.env,
-        ...env,
-        PATH: `/run/wrappers/bin:/run/current-system/sw/bin:${process.env.PATH || ""}`,
-      },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
